@@ -200,7 +200,7 @@ function renderMirrorState() {
   releaseSize.textContent = formatBytes(getInstallSetSize(mirrorEntry));
   assetLink.href = mirrorEntry.full_image?.browser_download_url || latestMirror?.html_url || LATEST_RELEASE_URL;
   assetLink.textContent = mirrorEntry.full_image ? "Download recovery full image" : "Open latest release";
-  installHint.textContent = "This installer uses the mirrored split install set for the selected board so ordinary reinstalls can preserve NVS-backed identity state.";
+  installHint.textContent = "This installer uses the mirrored split install set for the selected board so ordinary reinstalls can preserve NVS-backed identity state, while still allowing an explicit clean erase when you ask for one.";
   setStatus("ready", "Latest mirrored release ready for browser install.");
 }
 

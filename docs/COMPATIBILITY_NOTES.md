@@ -19,6 +19,7 @@ That implies at least:
 - The runtime path must emit encrypted BTHome advertisements only.
 - The anti-replay counter must survive reboots and must never be reset as part of normal upgrades.
 - The browser installer must not erase or overwrite the NVS partition during ordinary reinstalls.
+- A full erase may exist as an explicit user-chosen recovery action, but it must never be the silent default browser path.
 - A first boot with empty NVS may generate and persist a new AES key exactly once.
 - The maintenance path may reprint credentials, but it must not silently rotate keys or counters.
 

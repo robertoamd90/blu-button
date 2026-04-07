@@ -98,6 +98,7 @@ The browser installer flashes the mirrored board-specific split install set:
 
 using the board-specific offsets from `config/boards.json`.
 That keeps ordinary browser reinstalls aligned with the NVS persistence contract.
+When the installer offers a clean-erase choice, that path is for explicit reprovisioning, not the default reflash flow.
 
 Each release should include the board-specific full images for manual recovery and release completeness:
 
