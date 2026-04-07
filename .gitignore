@@ -1,0 +1,6 @@
+sdkconfig
+sdkconfig.old
+.sdkconfig.old
+build*/
+dist/
+managed_components/

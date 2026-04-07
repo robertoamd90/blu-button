@@ -1,0 +1,135 @@
+name: Deploy BluButton installer site
+
+on:
+  release:
+    types:
+      - published
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to publish to Pages
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Prepare Pages payload
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          set -euo pipefail
+          TAG="$RELEASE_TAG"
+          BOARD_CATALOG="config/boards.json"
+          RELEASE_JSON="$(gh api "repos/${{ github.repository }}/releases/tags/${TAG}")"
+          printf '%s' "$RELEASE_JSON" | jq -e --slurpfile boards "$BOARD_CATALOG" '
+            . as $release
+            | all(
+                $boards[0].boards[];
+                . as $board
+                | any(
+                    $release.assets[];
+                    .name == $board.full_asset_name and .digest and .browser_download_url
+                  )
+              )
+          ' >/dev/null
+
+          rm -rf _site
+          mkdir -p _site/firmware
+          cp -R site/. _site/
+          cp "$BOARD_CATALOG" _site/boards.json
+          while IFS= read -r asset_name; do
+            gh release download \
+              "$TAG" \
+              --repo "${{ github.repository }}" \
+              --pattern "$asset_name" \
+              --dir _site/firmware
+          done < <(jq -r '.boards[].full_asset_name' "$BOARD_CATALOG")
+
+          while IFS= read -r board_id; do
+            board_json="$(jq -c --arg id "$board_id" '.boards[] | select(.id == $id)' "$BOARD_CATALOG")"
+            jq -n \
+              --arg name "BluButton" \
+              --arg version "$(jq -r '.tag_name' <<<"$RELEASE_JSON")" \
+              --arg chip_family "$(jq -r '.chip_family' <<<"$board_json")" \
+              --arg image_name "$(jq -r '.full_asset_name' <<<"$board_json")" \
+              '{
+                  name: $name,
+                  version: $version,
+                  new_install_prompt_erase: false,
+                  builds: [
+                    {
+                      chipFamily: $chip_family,
+                      parts: [
+                        {
+                          path: ("./firmware/" + $image_name),
+                          offset: 0
+                        }
+                      ]
+                    }
+                  ]
+                }' > "_site/firmware/${board_id}-manifest.json"
+          done < <(jq -r '.boards[].id' "$BOARD_CATALOG")
+
+          printf '%s' "$RELEASE_JSON" | jq -c --slurpfile boards "$BOARD_CATALOG" '
+            . as $release
+            | {
+                tag: $release.tag_name,
+                published_at: $release.published_at,
+                html_url: $release.html_url,
+                assets: (
+                  $boards[0].boards
+                  | map({
+                      key: .id,
+                      value: (
+                        . as $board
+                        | {
+                            manifest_path: ("./firmware/" + $board.id + "-manifest.json"),
+                            full_image: (
+                              [
+                                $release.assets[]
+                                | select(.name == $board.full_asset_name)
+                                | {
+                                    asset_name: .name,
+                                    asset_size: .size,
+                                    asset_sha256: .digest,
+                                    browser_download_url: .browser_download_url
+                                  }
+                              ][0] // null
+                            )
+                          }
+                      )
+                    })
+                  | from_entries
+                )
+              }
+          ' > _site/firmware/metadata.json
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: _site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
