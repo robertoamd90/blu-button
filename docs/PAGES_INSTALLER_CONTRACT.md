@@ -31,7 +31,7 @@ For each board, the catalog defines:
 - `build_dir`
 - `full_asset_name`
 - `install_parts[]`
-  - auxiliary release artifacts used outside the default browser-install path
+  - board-specific split artifacts and offsets used by the default browser-install path
 
 That catalog drives:
 
@@ -76,17 +76,17 @@ For the currently supported boards that means:
 
 Meaning of the assets:
 
-- the merged `full.bin` is the normal browser-install path
-- the split-image assets remain available as auxiliary release artifacts
+- the split-image assets are the normal browser-install path
+- the merged `full.bin` remains available for manual recovery and low-level reprovisioning
 
 ## Safety boundary
 
-The browser installer should flash the board-specific merged `full.bin` from offset `0`
-without requesting a whole-device erase for ordinary reinstalls.
+The browser installer should flash the board-specific split install set from the offsets
+declared in `install_parts[]`, without requesting a whole-device erase for ordinary reinstalls.
 
 That keeps the browser path aligned with the compatibility contract:
 
-- the merged image remains the normal install artifact
+- the browser path avoids a whole-flash write across the NVS region
 - persisted NVS state such as AES key and anti-replay counter should survive ordinary reinstalls
 - a deliberate wipe is still a separate recovery or reprovisioning action, not the default browser flow
 
@@ -99,8 +99,8 @@ Current workflow behavior in `.github/workflows/pages.yml`:
 - checks out the repository
 - copies `site/` into `_site/`
 - reads `config/boards.json`
-- verifies that every declared board `full_asset_name` exists in the selected release and exposes a SHA-256 digest plus download URL
-- downloads every declared board `full_asset_name` into `_site/firmware/`
+- verifies that every declared board `full_asset_name` and every `install_parts[]` asset exist in the selected release and expose a SHA-256 digest plus download URL
+- downloads every declared board `full_asset_name` and every `install_parts[]` asset into `_site/firmware/`
 - writes one per-board `esp-web-tools` manifest into `_site/firmware/`
 - copies the shared board catalog to `_site/boards.json`
 - writes mirror metadata to `_site/firmware/metadata.json`
@@ -110,6 +110,7 @@ Current workflow behavior in `.github/workflows/pages.yml`:
 Expected published payload includes:
 
 - site HTML/CSS/JS from `site/`
+- mirrored split assets at `./firmware/<install_part.asset_name>`
 - mirrored full images at `./firmware/<full_asset_name>`
 - mirrored per-board manifests at `./firmware/<board-id>-manifest.json`
 - mirror metadata at `./firmware/metadata.json`
@@ -126,6 +127,16 @@ Expected shape of `./firmware/metadata.json`:
   "assets": {
     "esp32c3-supermini": {
       "manifest_path": "./firmware/esp32c3-supermini-manifest.json",
+      "install_parts": [
+        {
+          "kind": "bootloader",
+          "offset": 0,
+          "asset_name": "BluButton-esp32c3-supermini-bootloader.bin",
+          "asset_size": 21072,
+          "asset_sha256": "sha256:...",
+          "browser_download_url": "https://github.com/..."
+        }
+      ],
       "full_image": {
         "asset_name": "BluButton-esp32c3-supermini-full.bin",
         "asset_size": 4194304,
@@ -140,6 +151,7 @@ Expected shape of `./firmware/metadata.json`:
 Requirements:
 
 - `manifest_path` must point at the prebuilt same-origin manifest for that board
+- `install_parts` must be present for every supported board and preserve the declared offsets
 - `full_image` must be present for every supported board
 
 ## Browser-side manifest contract
@@ -156,9 +168,9 @@ Current `site/app.js` behavior:
 Manifest requirements:
 
 - `new_install_prompt_erase` must remain `false`
-- `parts[]` must contain exactly one entry
-- that entry must point at the mirrored board-specific `full.bin`
-- the offset must remain `0`
+- `parts[]` must mirror the board `install_parts[]` entries from `config/boards.json`
+- each part must point at the mirrored same-origin asset for that release
+- each offset must match the board catalog exactly
 
 ## Browser behavior
 
@@ -166,7 +178,7 @@ Success path:
 
 - board catalog loads
 - mirror metadata loads
-- the selected board entry includes `full_image` metadata and a manifest path
+- the selected board entry includes `install_parts` metadata and a manifest path
 - the install button becomes visible
 
 Failure path:
@@ -193,10 +205,10 @@ The browser installer is only a release-distribution surface for flashing firmwa
 Before changing the installer flow, verify:
 
 - whether `config/boards.json` still matches the supported boards and release asset names
-- whether `scripts/package-release.sh` still emits each board `full.bin`
-- whether the workflow still mirrors the full images into `./firmware/`
+- whether `scripts/package-release.sh` still emits each board split image set and `full.bin`
+- whether the workflow still mirrors the split images and full images into `./firmware/`
 - whether the workflow still writes matching metadata into `./firmware/metadata.json`
-- whether the browser manifest still points at the same-origin mirrored full image
+- whether the browser manifest still points at the same-origin mirrored split assets with matching offsets
 - whether README links and user-facing instructions still match the deployed site
 
 If you change:
@@ -224,6 +236,6 @@ When touching the Pages installer flow, validate at least:
 - `site/` still renders with no broken local asset references
 - `node --check site/app.js`
 - `bash -n scripts/package-release.sh`
-- the install button manifest points at the selected board's mirrored full image
-- the happy path works when the selected board metadata includes a manifest path and `full_image`
+- the install button manifest points at the selected board's mirrored split images and matching offsets
+- the happy path works when the selected board metadata includes a manifest path and `install_parts`
 - the missing-metadata path hides the install button and points manual download to the release page or recovery asset
