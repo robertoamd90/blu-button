@@ -100,7 +100,7 @@
         <ol class="steps">
           <li>Connect the ESP32 to your computer with a USB data cable.</li>
           <li>Select the correct board profile, then click <strong>Install Latest Release</strong>.</li>
-          <li>Select the serial port, confirm the install, and wait for flashing to finish.</li>
+          <li>Select the serial port, choose whether you want a clean erase, then confirm the install and wait for flashing to finish.</li>
           <li>After reboot, open any serial monitor at <strong>115200 baud</strong> to read the device MAC and generated AES key.</li>
         </ol>
       </section>
@@ -122,7 +122,7 @@
         <ul class="plain-list">
           <li>This page requires HTTPS plus Web Serial browser support.</li>
           <li>Browser install stays blocked until the mirrored split install set matches the selected release on Pages.</li>
-          <li>The browser path intentionally uses board-specific split images so ordinary reinstalls do not depend on a whole-flash write.</li>
+          <li>The browser path intentionally uses board-specific split images so ordinary reinstalls do not depend on a whole-flash write, while still allowing an explicit clean erase when desired.</li>
           <li>BluButton is the transmitter project; it intentionally does not expose a web UI on the device in this phase.</li>
         </ul>
       </section>

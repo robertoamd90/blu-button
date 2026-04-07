@@ -82,13 +82,14 @@ Meaning of the assets:
 ## Safety boundary
 
 The browser installer should flash the board-specific split install set from the offsets
-declared in `install_parts[]`, without requesting a whole-device erase for ordinary reinstalls.
+declared in `install_parts[]`, while still allowing the user to opt into a deliberate full erase
+when they explicitly want to reprovision the board from zero.
 
 That keeps the browser path aligned with the compatibility contract:
 
-- the browser path avoids a whole-flash write across the NVS region
+- the browser path avoids a whole-flash write across the NVS region during ordinary reinstalls
 - persisted NVS state such as AES key and anti-replay counter should survive ordinary reinstalls
-- a deliberate wipe is still a separate recovery or reprovisioning action, not the default browser flow
+- a deliberate wipe is still an explicit recovery or reprovisioning action, not the default browser flow
 
 ## Pages workflow contract
 
@@ -114,6 +115,9 @@ Expected published payload includes:
 - mirrored full images at `./firmware/<full_asset_name>`
 - mirrored per-board manifests at `./firmware/<board-id>-manifest.json`
 - mirror metadata at `./firmware/metadata.json`
+
+Because each manifest is written inside `./firmware/`, its `parts[].path` entries must resolve
+relative to that directory, for example `./BluButton-esp32c3-supermini-bootloader.bin`.
 
 ## Mirror metadata contract
 
@@ -167,9 +171,9 @@ Current `site/app.js` behavior:
 
 Manifest requirements:
 
-- `new_install_prompt_erase` must remain `false`
+- `new_install_prompt_erase` must remain `true` so the installer can offer an explicit clean erase when requested
 - `parts[]` must mirror the board `install_parts[]` entries from `config/boards.json`
-- each part must point at the mirrored same-origin asset for that release
+- each part must point at the mirrored same-origin asset for that release, relative to the manifest directory
 - each offset must match the board catalog exactly
 
 ## Browser behavior

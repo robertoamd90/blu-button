@@ -80,11 +80,11 @@ jobs:
               --arg name "BluButton" \
               --arg version "$(jq -r '.tag_name' <<<"$RELEASE_JSON")" \
               --arg chip_family "$(jq -r '.chip_family' <<<"$board_json")" \
-              --argjson parts "$(jq -c '.install_parts | map({path: ("./firmware/" + .asset_name), offset: .offset})' <<<"$board_json")" \
+              --argjson parts "$(jq -c '.install_parts | map({path: ("./" + .asset_name), offset: .offset})' <<<"$board_json")" \
               '{
                   name: $name,
                   version: $version,
-                  new_install_prompt_erase: false,
+                  new_install_prompt_erase: true,
                   builds: [
                     {
                       chipFamily: $chip_family,
