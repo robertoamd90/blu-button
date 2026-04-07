@@ -89,11 +89,17 @@ The repository includes a GitHub Pages installer based on `ESP Web Tools`.
 - Shared board catalog: `config/boards.json`
 - Pages workflow: `.github/workflows/pages.yml`
 
-The browser installer flashes the mirrored board-specific `full.bin` from offset `0`.
-For ordinary reinstalls, that path should preserve the existing NVS-backed identity state
-instead of erasing the whole device.
+The browser installer flashes the mirrored board-specific split install set:
 
-Each release should include the board-specific full images used by the web installer:
+- `bootloader.bin`
+- `partition-table.bin`
+- `ota-data.bin`
+- app image
+
+using the board-specific offsets from `config/boards.json`.
+That keeps ordinary browser reinstalls aligned with the NVS persistence contract.
+
+Each release should include the board-specific full images for manual recovery and release completeness:
 
 - `BluButton-esp32-devkit-v1-full.bin`
 - `BluButton-esp32c3-supermini-full.bin`
@@ -110,13 +116,13 @@ That script also produces the board-specific app images:
 - `BluButton-esp32-devkit-v1.bin`
 - `BluButton-esp32c3-supermini.bin`
 
-The packaging step also emits the split artifacts:
+The packaging step also emits the split artifacts used by the browser installer:
 
 - `BluButton-<board>-bootloader.bin`
 - `BluButton-<board>-partition-table.bin`
 - `BluButton-<board>-ota-data.bin`
 
-Those extra artifacts are for release completeness and manual low-level work, not the default browser-install path.
+The merged `full.bin` remains useful for manual recovery and low-level reprovisioning, but it is not the default browser-install path.
 
 ## Prototype maintenance model
 

@@ -1,6 +1,6 @@
 sdkconfig
 sdkconfig.old
 .sdkconfig.old
-build*/
+build/
 dist/
 managed_components/

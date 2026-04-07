@@ -51,6 +51,14 @@ jobs:
                     $release.assets[];
                     .name == $board.full_asset_name and .digest and .browser_download_url
                   )
+                  and all(
+                    $board.install_parts[];
+                    . as $part
+                    | any(
+                        $release.assets[];
+                        .name == $part.asset_name and .digest and .browser_download_url
+                      )
+                  )
               )
           ' >/dev/null
 
@@ -64,7 +72,7 @@ jobs:
               --repo "${{ github.repository }}" \
               --pattern "$asset_name" \
               --dir _site/firmware
-          done < <(jq -r '.boards[].full_asset_name' "$BOARD_CATALOG")
+          done < <(jq -r '.boards[] | .full_asset_name, (.install_parts[] | .asset_name)' "$BOARD_CATALOG" | sort -u)
 
           while IFS= read -r board_id; do
             board_json="$(jq -c --arg id "$board_id" '.boards[] | select(.id == $id)' "$BOARD_CATALOG")"
@@ -72,7 +80,7 @@ jobs:
               --arg name "BluButton" \
               --arg version "$(jq -r '.tag_name' <<<"$RELEASE_JSON")" \
               --arg chip_family "$(jq -r '.chip_family' <<<"$board_json")" \
-              --arg image_name "$(jq -r '.full_asset_name' <<<"$board_json")" \
+              --argjson parts "$(jq -c '.install_parts | map({path: ("./firmware/" + .asset_name), offset: .offset})' <<<"$board_json")" \
               '{
                   name: $name,
                   version: $version,
@@ -80,12 +88,7 @@ jobs:
                   builds: [
                     {
                       chipFamily: $chip_family,
-                      parts: [
-                        {
-                          path: ("./firmware/" + $image_name),
-                          offset: 0
-                        }
-                      ]
+                      parts: $parts
                     }
                   ]
                 }' > "_site/firmware/${board_id}-manifest.json"
@@ -105,6 +108,24 @@ jobs:
                         . as $board
                         | {
                             manifest_path: ("./firmware/" + $board.id + "-manifest.json"),
+                            install_parts: (
+                              [
+                                $board.install_parts[]
+                                | . as $part
+                                | (
+                                    $release.assets[]
+                                    | select(.name == $part.asset_name)
+                                    | {
+                                        kind: $part.kind,
+                                        offset: $part.offset,
+                                        asset_name: .name,
+                                        asset_size: .size,
+                                        asset_sha256: .digest,
+                                        browser_download_url: .browser_download_url
+                                      }
+                                  )
+                              ]
+                            ),
                             full_image: (
                               [
                                 $release.assets[]

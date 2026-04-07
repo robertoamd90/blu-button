@@ -141,7 +141,17 @@ function formatBytes(value) {
 }
 
 function describeInstallSet(entry) {
+  if (Array.isArray(entry?.install_parts) && entry.install_parts.length > 0) {
+    return `${entry.install_parts.length}-part install set`;
+  }
   return entry?.full_image?.asset_name || "Unavailable";
+}
+
+function getInstallSetSize(entry) {
+  if (!Array.isArray(entry?.install_parts) || entry.install_parts.length === 0) {
+    return Number.NaN;
+  }
+  return entry.install_parts.reduce((total, part) => total + (part.asset_size || 0), 0);
 }
 
 function renderBoardProfile(boardId) {
@@ -173,12 +183,12 @@ function renderMirrorState() {
   releaseDate.textContent = formatDate(latestMirror?.published_at);
   releaseLink.href = latestMirror?.html_url || LATEST_RELEASE_URL;
 
-  if (!mirrorEntry || !mirrorEntry.manifest_path || !mirrorEntry.full_image) {
+  if (!mirrorEntry || !mirrorEntry.manifest_path || !Array.isArray(mirrorEntry.install_parts) || mirrorEntry.install_parts.length === 0) {
     hideInstall();
     releaseAsset.textContent = "Unavailable";
     releaseSize.textContent = "Unavailable";
-    assetLink.href = latestMirror?.html_url || LATEST_RELEASE_URL;
-    assetLink.textContent = "Open latest release";
+    assetLink.href = mirrorEntry?.full_image?.browser_download_url || latestMirror?.html_url || LATEST_RELEASE_URL;
+    assetLink.textContent = mirrorEntry?.full_image ? "Download recovery full image" : "Open latest release";
     installHint.textContent = "The Pages installer payload for the selected board is incomplete, so browser install is unavailable.";
     setStatus("error", "Pages installer metadata is incomplete for the selected board.");
     return;
@@ -187,10 +197,10 @@ function renderMirrorState() {
   installButton.manifest = new URL(mirrorEntry.manifest_path, window.location.href).href;
   installButton.hidden = false;
   releaseAsset.textContent = describeInstallSet(mirrorEntry);
-  releaseSize.textContent = formatBytes(mirrorEntry.full_image.asset_size);
-  assetLink.href = mirrorEntry.full_image.browser_download_url || latestMirror?.html_url || LATEST_RELEASE_URL;
-  assetLink.textContent = "Download release full image";
-  installHint.textContent = "This installer uses the mirrored full image for the selected board without requesting a whole-device erase during ordinary reinstalls.";
+  releaseSize.textContent = formatBytes(getInstallSetSize(mirrorEntry));
+  assetLink.href = mirrorEntry.full_image?.browser_download_url || latestMirror?.html_url || LATEST_RELEASE_URL;
+  assetLink.textContent = mirrorEntry.full_image ? "Download recovery full image" : "Open latest release";
+  installHint.textContent = "This installer uses the mirrored split install set for the selected board so ordinary reinstalls can preserve NVS-backed identity state.";
   setStatus("ready", "Latest mirrored release ready for browser install.");
 }
 

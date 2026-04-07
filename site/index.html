@@ -21,7 +21,7 @@
       <p class="eyebrow">GitHub Pages Installer</p>
       <h1>Install BluButton from the browser</h1>
       <p class="lead">
-        Flash the latest validated board-specific full image onto a supported ESP32-family board
+        Flash the latest validated board-specific install set onto a supported ESP32-family board
         without opening the terminal.
       </p>
 
@@ -68,10 +68,10 @@
 
           <div class="action-row">
             <a id="release-link" class="secondary-link" href="https://github.com/robertoamd90/blu-button/releases/latest" target="_blank" rel="noreferrer">Open latest release</a>
-            <a id="asset-link" class="secondary-link" href="https://github.com/robertoamd90/blu-button/releases/latest" target="_blank" rel="noreferrer">Download release full image</a>
+            <a id="asset-link" class="secondary-link" href="https://github.com/robertoamd90/blu-button/releases/latest" target="_blank" rel="noreferrer">Download recovery full image</a>
           </div>
           <p class="hint" id="install-hint">
-            This installer serves a same-origin full image for the selected board.
+            This installer serves a same-origin split install set for the selected board.
           </p>
         </section>
 
@@ -112,7 +112,7 @@
           <li>If no AES key is present yet, BluButton generates one on first boot and persists it in NVS.</li>
           <li>The serial log is the maintenance surface for the prototype phase: it prints the credentials you need to register the device in BluButtonBridge.</li>
           <li>A 10-second hold is reserved for local maintenance behavior such as reprinting credentials.</li>
-          <li>The browser installer flashes the full image without requesting a whole-device erase during ordinary reinstalls.</li>
+          <li>The browser installer flashes the mirrored bootloader, partition table, ota-data, and app images at their board-specific offsets.</li>
         </ul>
       </section>
 
@@ -121,8 +121,8 @@
         <h2>Before you flash</h2>
         <ul class="plain-list">
           <li>This page requires HTTPS plus Web Serial browser support.</li>
-          <li>Browser install stays blocked until the mirrored full image matches the selected release on Pages.</li>
-          <li>The browser path intentionally uses the full image, not a partial update bundle.</li>
+          <li>Browser install stays blocked until the mirrored split install set matches the selected release on Pages.</li>
+          <li>The browser path intentionally uses board-specific split images so ordinary reinstalls do not depend on a whole-flash write.</li>
           <li>BluButton is the transmitter project; it intentionally does not expose a web UI on the device in this phase.</li>
         </ul>
       </section>
