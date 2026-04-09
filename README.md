@@ -10,6 +10,11 @@ ESP-IDF firmware for an open-source BLE button transmitter designed to be indist
 - `docs/PAGES_INSTALLER_CONTRACT.md`
 - `docs/BOOTSTRAP_PLAN.md`
 
+Only for Codex runtime or review-phase work:
+
+- `.codex/config.toml`
+- `.codex/agents/*.toml`
+
 ## Current scope
 
 This repository starts intentionally small:
@@ -29,6 +34,7 @@ The first goal is to prove the compatibility path:
 - persisted monotonic counter
 - 4 button events
 - BLE encrypted advertising compatible with the existing bridge receiver
+- deep-sleep idle with button-triggered wake
 
 ## Wi-Fi Note
 
@@ -129,9 +135,13 @@ The merged `full.bin` remains useful for manual recovery and low-level reprovisi
 
 In the current phase, the maintenance surface is intentionally simple:
 
+- the normal idle state is deep sleep
+- a BOOT press wakes the device, opens a short gesture-capture session for single, double, triple, long, and maintenance hold detection, and returns to deep sleep after the local action or BLE advertisement completes
+- BLE startup overlaps with the gesture session so the wake-to-advertise path stays bounded instead of serializing all startup cost after classification
 - on first boot, the device generates and stores an AES key if one is not already present
 - the serial log is expected to show the device identity and registration credentials
-- a 10-second hold is reserved for local maintenance behavior such as reprinting credentials
+- a wake-triggering hold is credited for the boot time already spent before classification, so long and maintenance holds are not shortened by the deep-sleep resume path
+- a 10-second hold remains reserved for local maintenance behavior such as reprinting credentials
 
 After flashing, open a serial monitor at `115200` baud. From this repo the simplest path is:
 
@@ -165,3 +175,5 @@ ESPPORT=/dev/cu.usbmodem3101 scripts/idf-target.sh esp32c3-supermini monitor
 - `docs/BOOTSTRAP_PLAN.md`: current v0 status, validation gaps, and likely next slices
 - `docs/COMPATIBILITY_NOTES.md`: BLE compatibility contract toward BluButtonBridge and generic BTHome listeners
 - `docs/PAGES_INSTALLER_CONTRACT.md`: browser installer and Pages deploy contract
+- `AGENTS.md`: contributor and coding-agent workflow guardrails
+- `.codex/config.toml` and `.codex/agents/*.toml`: project-scoped Codex runtime settings and review-phase subagent contracts

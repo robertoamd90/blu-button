@@ -12,6 +12,14 @@ Before doing non-trivial work, read:
 - `docs/PAGES_INSTALLER_CONTRACT.md`
 - `docs/BOOTSTRAP_PLAN.md`
 
+For project-scoped Codex runtime settings, also read:
+
+- `.codex/config.toml`
+
+For review-phase Codex subagent work, also read:
+
+- `.codex/agents/*.toml`
+
 ## Core intent
 
 BluButton is a sibling project of BluButtonBridge.
@@ -27,6 +35,10 @@ Use the docs with these responsibilities in mind:
   - operator-facing overview, setup, and terminology
 - `docs/WORKFLOW.md`
   - development cycle, review flow, and review-agent invocation contract
+- `.codex/config.toml`
+  - project-scoped subagent runtime settings
+- `.codex/agents/*.toml`
+  - source of truth for reviewer identity, mandate, forbidden actions, and output contract
 - `docs/COMPATIBILITY_NOTES.md`
   - compatibility-sensitive BLE contract and identity assumptions
 - `docs/PAGES_INSTALLER_CONTRACT.md`
@@ -37,6 +49,8 @@ Use the docs with these responsibilities in mind:
 If documents overlap:
 
 - `docs/WORKFLOW.md` wins for development/review process and review-agent expectations
+- `.codex/config.toml` is runtime configuration only and does not participate in prose-doc conflict resolution
+- `.codex/agents/*.toml` win for reviewer-role definition and reviewer output contract
 - `docs/COMPATIBILITY_NOTES.md` wins for BLE payload and identity expectations
 - `docs/PAGES_INSTALLER_CONTRACT.md` wins for release asset naming, mirrored metadata, and browser install behavior
 - `README.md` wins for user-facing setup instructions and terminology
@@ -86,14 +100,18 @@ This requirement is specifically for the review phase.
 It does not redefine how generic work agents should be prompted for normal
 implementation, exploration, or research tasks.
 
-When invoking these review agents, ask for the structured response format
-defined in `docs/WORKFLOW.md`.
-Also follow the review invocation guidance in `docs/WORKFLOW.md`:
+The operational custom subagent definitions for review roles live in:
 
-- declare the exact review scope
-- prompt the agent as a single-role reviewer only
-- explicitly forbid coordination, spawning, and process commentary
-- close any previous review agents first, then spawn fresh ones for the new round
+- `.codex/agents/reviewer.toml`
+- `.codex/agents/architect.toml`
+- `.codex/agents/simplifier.toml`
+- `.codex/agents/librarian.toml`
+
+Treat `.codex/agents/*.toml` as the source of truth for reviewer identity,
+mandate, forbidden actions, and output format.
+
+When invoking these review agents, follow the review invocation contract in
+`docs/WORKFLOW.md` and keep `AGENTS.md` at the policy level only.
 
 Review is not complete until:
 
