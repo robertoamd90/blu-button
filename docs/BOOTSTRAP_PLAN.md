@@ -54,27 +54,33 @@ The bootstrap phase has now been folded into a small working runtime:
 
 3. `components/gpio_manager/`
    - reuses the board wiring abstraction from `board_config`
-   - handles BOOT press detection for single, double, triple, long, and 10-second maintenance hold
-   - emits the shared button events to the runtime without owning downstream behavior
+   - provides BOOT-button state, wake detection, gesture capture, and wake-source configuration helpers
+   - captures a short post-wake gesture session for single, double, triple, long, and 10-second maintenance hold
+   - keeps the gesture classifier separate from downstream BLE and LED behavior
 
 4. `components/led_feedback/`
    - drives deterministic LED feedback patterns
 
 5. `components/ble_button_tx/`
    - initializes NimBLE in broadcaster-only mode
+   - allows BLE startup to overlap with gesture capture so wake-to-advertise latency stays bounded
    - persists and advances the anti-replay counter
    - emits encrypted BTHome service data with Shelly-compatible button events
 
 6. `components/system_runtime/`
-   - composes identity, GPIO, LED feedback, and BLE transmission
+   - composes identity, GPIO, LED feedback, BLE transmission, and the deep-sleep lifecycle
    - prints `MAC + AES key` on first boot
    - reprints registration credentials on a 10-second hold
+   - degrades to warning-and-sleep if BLE startup or event delivery fails during a wake session
+   - returns to deep sleep after each wake-driven interaction
 
 ## Remaining v0 Validation
 
 - flash and test both boards on hardware
 - verify that `bbb` accepts the advertisements without bridge-side changes
 - compare event timing against a real Shelly BLU Button and tune thresholds if needed
+- measure wake-to-advertise timing and deep-sleep current on real hardware
+- validate that borderline long-press and multi-click gestures still feel repeatable after the wake transition
 - decide whether to add battery telemetry placeholders in the next iteration
 
 ## Likely next slices after review
