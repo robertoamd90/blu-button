@@ -83,22 +83,35 @@ When browser installer files change, also validate:
 - `bash -n scripts/package-release.sh`
 - the generated release asset names still match `config/boards.json`
 
-## Mandatory multi-agent review
+## User-directed review agents
 
-For non-trivial work, run all three code reviews:
+Review-phase agents are not invoked automatically.
+The user must explicitly say when to start review work and which review round
+they want.
+
+Default rule:
+
+- do not call `reviewer`, `architect`, `simplifier`, or `librarian` unless the
+  user explicitly asks for review agents in the current task
+- do not start or continue a `fix -> review -> fix -> review` loop unless the
+  user explicitly asks for that loop in the current task
+
+When the user explicitly requests a review round for non-trivial work, the
+default review set is:
 
 - `reviewer`
 - `architect`
 - `simplifier`
 
-When the change significantly affects repository documentation, onboarding flow,
-workflow guidance, or agent instructions, also run:
+When the user explicitly requests a review round and the change significantly
+affects repository documentation, onboarding flow, workflow guidance, or agent
+instructions, also run:
 
 - `librarian`
 
-This requirement is specifically for the review phase.
-It does not redefine how generic work agents should be prompted for normal
-implementation, exploration, or research tasks.
+Outside an explicit user-requested review phase, work may be completed with
+implementation plus validation only. In that case, say clearly in the handoff
+that review agents were not run because the user did not request them.
 
 The operational custom subagent definitions for review roles live in:
 
@@ -113,11 +126,13 @@ mandate, forbidden actions, and output format.
 When invoking these review agents, follow the review invocation contract in
 `docs/WORKFLOW.md` and keep `AGENTS.md` at the policy level only.
 
-Review is not complete until:
+When the user has explicitly asked for a review phase, review is not complete
+until:
 
-- all required agents have produced a clear, usable outcome
-- all actionable findings are fixed
-- and no obvious cleanup remains
+- all user-requested agents have produced a clear, usable outcome
+- all actionable findings that the user wants addressed in that round are fixed
+- and no obvious cleanup remains within the requested review scope
 
-If an agent still finds issues, keep iterating and rerun the reviews.
+If an agent still finds issues and the user asked for a review loop, keep
+iterating and rerun the requested reviews.
 If tooling is unstable, say that explicitly instead of claiming review is complete.
