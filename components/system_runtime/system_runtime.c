@@ -14,10 +14,6 @@
 
 static const char *TAG = "system_runtime";
 
-typedef struct {
-    bool ble_ready_for_event;
-} wake_capture_runtime_t;
-
 static void init_nvs_or_die(void)
 {
     esp_err_t err = nvs_flash_init();
@@ -57,29 +53,14 @@ static void enter_deep_sleep(void)
     esp_deep_sleep_start();
 }
 
-static esp_err_t init_runtime_during_wake_capture(void *ctx)
-{
-    wake_capture_runtime_t *runtime = ctx;
-    esp_err_t err = ble_button_tx_init(device_identity_get_key());
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "BLE init failed at wake start: %s", esp_err_to_name(err));
-        runtime->ble_ready_for_event = false;
-        return ESP_OK;
-    }
-
-    runtime->ble_ready_for_event = true;
-    return ESP_OK;
-}
-
 void system_runtime_init(void)
 {
     esp_err_t err;
     button_event_t event = BUTTON_EVENT_SINGLE_PRESS;
     bool have_event = false;
     const uint32_t wakeup_causes = esp_sleep_get_wakeup_causes();
-    wake_capture_runtime_t wake_runtime = {
-        .ble_ready_for_event = false,
-    };
+    gpio_wake_capture_t wake_capture = {0};
+    bool ble_ready_for_event = false;
 
     init_nvs_or_die();
     ESP_ERROR_CHECK(device_identity_init());
@@ -92,11 +73,17 @@ void system_runtime_init(void)
         print_registration_credentials();
     }
 
-    ESP_ERROR_CHECK(gpio_manager_capture_wake_event(wakeup_causes,
-                                                    init_runtime_during_wake_capture,
-                                                    &wake_runtime,
-                                                    &event,
-                                                    &have_event));
+    ESP_ERROR_CHECK(gpio_manager_begin_wake_capture(&wake_capture, wakeup_causes));
+    if (wake_capture.armed) {
+        err = ble_button_tx_init(device_identity_get_key());
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "BLE init failed at wake start: %s", esp_err_to_name(err));
+        } else {
+            ble_ready_for_event = true;
+        }
+
+        ESP_ERROR_CHECK(gpio_manager_finish_wake_capture(&wake_capture, &event, &have_event));
+    }
 
     if (have_event) {
         switch (event) {
@@ -104,7 +91,7 @@ void system_runtime_init(void)
             case BUTTON_EVENT_DOUBLE_PRESS:
             case BUTTON_EVENT_TRIPLE_PRESS:
             case BUTTON_EVENT_LONG_PRESS:
-                if (wake_runtime.ble_ready_for_event) {
+                if (ble_ready_for_event) {
                     err = ble_button_tx_send_event(event);
                     if (err != ESP_OK) {
                         ESP_LOGW(TAG, "BLE send failed for event %d: %s", (int)event, esp_err_to_name(err));

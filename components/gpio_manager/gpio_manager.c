@@ -360,24 +360,35 @@ static bool has_wake_session(uint32_t wakeup_causes)
     return gpio_manager_boot_button_pressed() || woke_from_boot_button(wakeup_causes);
 }
 
-static esp_err_t begin_wake_capture(uint32_t wakeup_causes, wake_capture_state_t *state)
+esp_err_t gpio_manager_begin_wake_capture(gpio_wake_capture_t *capture,
+                                          uint32_t wakeup_causes)
 {
-    if (!state) {
+    if (!capture) {
         return ESP_ERR_INVALID_ARG;
     }
 
-    memset(state, 0, sizeof(*state));
-    state->armed = has_wake_session(wakeup_causes);
-    if (!state->armed) {
+    capture->wakeup_causes = wakeup_causes;
+    capture->armed = has_wake_session(wakeup_causes);
+    if (!capture->armed) {
         return ESP_OK;
     }
 
-    state->implicit_initial_press = woke_from_boot_button(wakeup_causes);
+    return configure_button_edge_capture();
+}
+
+static void build_wake_capture_state(const gpio_wake_capture_t *capture,
+                                     wake_capture_state_t *state)
+{
+    if (!capture || !state) {
+        return;
+    }
+
+    memset(state, 0, sizeof(*state));
+    state->armed = capture->armed;
+    state->implicit_initial_press = woke_from_boot_button(capture->wakeup_causes);
     state->have_queued_edges = s_button_edge_queue && uxQueueMessagesWaiting(s_button_edge_queue) > 0;
     state->now_ms = current_boot_elapsed_ms();
     state->sampled_pressed = gpio_manager_boot_button_pressed();
-
-    return configure_button_edge_capture();
 }
 
 static void gesture_session_apply_initial_wake_state(gesture_session_t *session,
@@ -408,25 +419,26 @@ static void gesture_session_apply_initial_wake_state(gesture_session_t *session,
     }
 }
 
-static esp_err_t finish_wake_capture(uint32_t wakeup_causes,
-                                     button_event_t *out_event,
-                                     bool *out_have_event)
+esp_err_t gpio_manager_finish_wake_capture(const gpio_wake_capture_t *capture,
+                                           button_event_t *out_event,
+                                           bool *out_have_event)
 {
     button_edge_event_t edge_event;
     uint32_t now_ms;
     wake_capture_state_t state;
 
-    if (!out_event || !out_have_event) {
+    if (!capture || !out_event || !out_have_event) {
         return ESP_ERR_INVALID_ARG;
     }
 
     *out_have_event = false;
     *out_event = BUTTON_EVENT_SINGLE_PRESS;
 
-    state.implicit_initial_press = woke_from_boot_button(wakeup_causes);
-    state.have_queued_edges = s_button_edge_queue && uxQueueMessagesWaiting(s_button_edge_queue) > 0;
-    state.now_ms = current_boot_elapsed_ms();
-    state.sampled_pressed = gpio_manager_boot_button_pressed();
+    if (!capture->armed) {
+        return ESP_OK;
+    }
+
+    build_wake_capture_state(capture, &state);
     gesture_session_t gesture_session;
     gesture_session_init(&gesture_session, state.sampled_pressed, state.now_ms);
     gesture_session_apply_initial_wake_state(&gesture_session, &state);
@@ -481,40 +493,6 @@ static esp_err_t finish_wake_capture(uint32_t wakeup_causes,
     }
 
     return ESP_OK;
-}
-
-esp_err_t gpio_manager_capture_wake_event(uint32_t wakeup_causes,
-                                          gpio_manager_wake_capture_hook_t during_capture,
-                                          void *ctx,
-                                          button_event_t *out_event,
-                                          bool *out_have_event)
-{
-    wake_capture_state_t state;
-
-    if (!out_event || !out_have_event) {
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    esp_err_t err = begin_wake_capture(wakeup_causes, &state);
-    if (err != ESP_OK) {
-        return err;
-    }
-
-    *out_have_event = false;
-    *out_event = BUTTON_EVENT_SINGLE_PRESS;
-
-    if (!state.armed) {
-        return ESP_OK;
-    }
-
-    if (during_capture) {
-        err = during_capture(ctx);
-        if (err != ESP_OK) {
-            return err;
-        }
-    }
-
-    return finish_wake_capture(wakeup_causes, out_event, out_have_event);
 }
 
 esp_err_t gpio_manager_enable_boot_button_wakeup(void)
