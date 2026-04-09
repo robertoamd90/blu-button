@@ -9,7 +9,7 @@ For normal feature or fix work:
 1. implement the change cleanly
 2. run target-aware validation for the current scope
 3. let the user handle on-device behavioral checks unless explicitly asked to do more
-4. only after validation and review proceed with commit / PR / merge work
+4. only after validation and any user-requested review proceed with commit / PR / merge work
 
 For non-trivial firmware changes, the default validation target is both currently supported board profiles:
 
@@ -45,9 +45,20 @@ Default local assumptions for this repo:
 
 If one of these assumptions is false, say so clearly in the handoff instead of implying full validation happened.
 
-## 2. Multi-agent review flow
+## 2. User-directed review flow
 
-Non-trivial work must go through three independent reviews:
+Review-phase agents are opt-in for this repository.
+Do not invoke review agents unless the user explicitly asks for them in the
+current task.
+
+Default rule:
+
+- do not automatically start review agents after implementation
+- do not automatically enter a `fix -> review -> fix -> review` loop
+- if review agents were not requested, say that explicitly in the handoff
+
+When the user explicitly asks for a review round on non-trivial work, the
+default review set is three independent reviews:
 
 - `reviewer`
   - looks for bugs, regressions, hidden risks, and missing validation
@@ -56,7 +67,7 @@ Non-trivial work must go through three independent reviews:
 - `simplifier`
   - looks for duplication, unnecessary branches, redundant state, and patch-on-patch complexity
 
-When the change significantly affects repository documentation, onboarding flow, workflow guidance, or agent instructions, also run:
+When the user explicitly asks for a review round and the change significantly affects repository documentation, onboarding flow, workflow guidance, or agent instructions, also run:
 
 - `librarian`
   - reviews documentation clarity, source-of-truth hierarchy, onboarding speed, task discoverability, actionability, and AI-agent friendliness
@@ -178,11 +189,13 @@ handle such as `[@reviewer](subagent://reviewer)`.
 
 ### Completion rule
 
-Review is not complete until:
+When the user has explicitly asked for a review phase, review is not complete until:
 
-- all required agents have returned a clear, usable result
-- all actionable findings are fixed
-- and there are no remaining obvious items to clean up
+- all user-requested agents have returned a clear, usable result
+- all actionable findings that the user wants addressed in that round are fixed
+- and there are no remaining obvious items to clean up within the requested scope
 
-If one or more agents still find issues, keep iterating and rerun the reviews.
-Do not stop at “good enough” if the agents are still pointing at real work to do.
+If one or more agents still find issues and the user asked for a review loop,
+keep iterating and rerun the requested reviews.
+Do not start a new review round unless the user asked for that loop or asks for
+another explicit review pass.
