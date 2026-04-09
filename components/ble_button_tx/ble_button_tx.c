@@ -24,15 +24,20 @@ static const char *NVS_KEY_COUNTER = "counter";
 #define BTHOME_OBJ_PACKET_ID 0x00
 #define BTHOME_OBJ_BUTTON    0x3A
 
-#define ADV_DURATION_MS 350
+#define ADV_DURATION_MS 200
 
 static SemaphoreHandle_t s_mutex = NULL;
 static SemaphoreHandle_t s_ready_sem = NULL;
+static SemaphoreHandle_t s_adv_done_sem = NULL;
 static bool s_initialized = false;
 static bool s_ready = false;
+static bool s_adv_active = false;
 static uint8_t s_own_addr_type = BLE_OWN_ADDR_PUBLIC;
 static uint8_t s_mac[6];
 static uint32_t s_counter = 0;
+static uint32_t s_adv_generation = 0;
+static uint32_t s_active_adv_generation = 0;
+static TickType_t s_adv_deadline_ticks = 0;
 static psa_key_id_t s_key_id = PSA_KEY_ID_NULL;
 
 static void reset_signal(SemaphoreHandle_t sem)
@@ -48,6 +53,11 @@ static void reset_signal(SemaphoreHandle_t sem)
 static void reset_ready_signal(void)
 {
     reset_signal(s_ready_sem);
+}
+
+static void reset_adv_done_signal(void)
+{
+    reset_signal(s_adv_done_sem);
 }
 
 static esp_err_t counter_load(void)
@@ -111,10 +121,16 @@ static esp_err_t import_key(const uint8_t key[16])
 
 static int gap_event_cb(struct ble_gap_event *event, void *arg)
 {
-    (void)arg;
+    const uint32_t generation = (uint32_t)(uintptr_t)arg;
 
     if (event->type == BLE_GAP_EVENT_ADV_COMPLETE) {
         ESP_LOGI(TAG, "BLE advertising completed with reason=%d", event->adv_complete.reason);
+        if (generation == s_active_adv_generation) {
+            s_adv_active = false;
+            if (s_adv_done_sem) {
+                xSemaphoreGive(s_adv_done_sem);
+            }
+        }
     }
 
     return 0;
@@ -124,7 +140,11 @@ static void on_reset(int reason)
 {
     ESP_LOGW(TAG, "BLE host reset: %d", reason);
     s_ready = false;
+    s_adv_active = false;
     reset_ready_signal();
+    if (s_adv_done_sem) {
+        xSemaphoreGive(s_adv_done_sem);
+    }
     if (s_ready_sem) {
         xSemaphoreGive(s_ready_sem);
     }
@@ -191,16 +211,22 @@ static esp_err_t wait_until_ready_ticks(TickType_t timeout_ticks)
 
 static bool tx_runtime_ready(void)
 {
-    return s_initialized && s_mutex && s_ready_sem;
+    return s_initialized && s_mutex && s_ready_sem && s_adv_done_sem;
 }
 
 static esp_err_t start_adv_operation(const struct ble_gap_adv_params *adv_params)
 {
     int rc;
+    const uint32_t generation = ++s_adv_generation;
 
+    s_active_adv_generation = generation;
+    s_adv_active = true;
+    s_adv_deadline_ticks = xTaskGetTickCount() + pdMS_TO_TICKS(ADV_DURATION_MS);
+    reset_adv_done_signal();
     rc = ble_gap_adv_start(s_own_addr_type, NULL, ADV_DURATION_MS, adv_params,
-                           gap_event_cb, NULL);
+                           gap_event_cb, (void *)(uintptr_t)generation);
     if (rc != 0) {
+        s_adv_active = false;
         if (!s_ready) {
             ESP_LOGW(TAG, "ble_gap_adv_start interrupted by host reset: %d", rc);
             return ESP_ERR_INVALID_STATE;
@@ -210,6 +236,32 @@ static esp_err_t start_adv_operation(const struct ble_gap_adv_params *adv_params
     }
 
     ESP_LOGI(TAG, "BLE advertising started for %d ms", ADV_DURATION_MS);
+    return ESP_OK;
+}
+
+esp_err_t ble_button_tx_wait_for_adv_complete(void)
+{
+    if (!tx_runtime_ready() || !s_adv_done_sem) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    while (ble_gap_adv_active()) {
+        TickType_t now_ticks = xTaskGetTickCount();
+        TickType_t remaining_ticks;
+
+        if (now_ticks >= s_adv_deadline_ticks) {
+            ESP_LOGW(TAG, "BLE advertising window elapsed");
+            break;
+        }
+
+        remaining_ticks = s_adv_deadline_ticks - now_ticks;
+        if (remaining_ticks > pdMS_TO_TICKS(20)) {
+            remaining_ticks = pdMS_TO_TICKS(20);
+        }
+
+        vTaskDelay(remaining_ticks);
+    }
+
     return ESP_OK;
 }
 
@@ -274,7 +326,8 @@ esp_err_t ble_button_tx_init(const uint8_t key[16])
 
     s_mutex = xSemaphoreCreateMutex();
     s_ready_sem = xSemaphoreCreateBinary();
-    if (!s_mutex || !s_ready_sem) {
+    s_adv_done_sem = xSemaphoreCreateBinary();
+    if (!s_mutex || !s_ready_sem || !s_adv_done_sem) {
         return ESP_ERR_NO_MEM;
     }
 

@@ -58,6 +58,7 @@ void system_runtime_init(void)
     esp_err_t err;
     button_event_t event = BUTTON_EVENT_SINGLE_PRESS;
     bool have_event = false;
+    bool ble_event_sent = false;
     const uint32_t wakeup_causes = esp_sleep_get_wakeup_causes();
     gpio_wake_capture_t wake_capture = {0};
     bool ble_ready_for_event = false;
@@ -97,12 +98,21 @@ void system_runtime_init(void)
                     err = ble_button_tx_send_event(event);
                     if (err != ESP_OK) {
                         ESP_LOGW(TAG, "BLE send failed for event %d: %s", (int)event, esp_err_to_name(err));
+                    } else {
+                        ble_event_sent = true;
                     }
                 }
 
                 err = led_feedback_run_button_event_pattern_blocking(event);
                 if (err != ESP_OK) {
                     ESP_LOGW(TAG, "LED feedback failed for event %d: %s", (int)event, esp_err_to_name(err));
+                }
+
+                if (ble_event_sent) {
+                    err = ble_button_tx_wait_for_adv_complete();
+                    if (err != ESP_OK) {
+                        ESP_LOGW(TAG, "BLE advertising did not complete cleanly: %s", esp_err_to_name(err));
+                    }
                 }
                 break;
             case BUTTON_EVENT_MAINTENANCE_HOLD:
