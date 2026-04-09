@@ -28,23 +28,12 @@ static const char *NVS_KEY_COUNTER = "counter";
 
 static SemaphoreHandle_t s_mutex = NULL;
 static SemaphoreHandle_t s_ready_sem = NULL;
-static SemaphoreHandle_t s_adv_done_sem = NULL;
 static bool s_initialized = false;
 static bool s_ready = false;
 static uint8_t s_own_addr_type = BLE_OWN_ADDR_PUBLIC;
 static uint8_t s_mac[6];
 static uint32_t s_counter = 0;
 static psa_key_id_t s_key_id = PSA_KEY_ID_NULL;
-
-typedef struct {
-    uint32_t generation;
-    bool completed;
-    bool reset;
-    int reason;
-} adv_operation_t;
-
-static uint32_t s_adv_generation = 0;
-static adv_operation_t *s_active_adv_operation = NULL;
 
 static void reset_signal(SemaphoreHandle_t sem)
 {
@@ -59,11 +48,6 @@ static void reset_signal(SemaphoreHandle_t sem)
 static void reset_ready_signal(void)
 {
     reset_signal(s_ready_sem);
-}
-
-static void reset_adv_done_signal(void)
-{
-    reset_signal(s_adv_done_sem);
 }
 
 static esp_err_t counter_load(void)
@@ -127,41 +111,22 @@ static esp_err_t import_key(const uint8_t key[16])
 
 static int gap_event_cb(struct ble_gap_event *event, void *arg)
 {
-    const uint32_t generation = (uint32_t)(uintptr_t)arg;
-    adv_operation_t *operation = s_active_adv_operation;
-    if (event->type == BLE_GAP_EVENT_ADV_COMPLETE) {
-        if (!operation || generation != operation->generation) {
-            return 0;
-        }
+    (void)arg;
 
-        operation->reason = event->adv_complete.reason;
-        operation->reset = false;
-        operation->completed = true;
-        if (s_adv_done_sem) {
-            xSemaphoreGive(s_adv_done_sem);
-        }
+    if (event->type == BLE_GAP_EVENT_ADV_COMPLETE) {
+        ESP_LOGI(TAG, "BLE advertising completed with reason=%d", event->adv_complete.reason);
     }
+
     return 0;
 }
 
 static void on_reset(int reason)
 {
-    adv_operation_t *operation = s_active_adv_operation;
-
     ESP_LOGW(TAG, "BLE host reset: %d", reason);
     s_ready = false;
     reset_ready_signal();
     if (s_ready_sem) {
         xSemaphoreGive(s_ready_sem);
-    }
-
-    if (operation) {
-        operation->reason = reason;
-        operation->reset = true;
-        operation->completed = true;
-        if (s_adv_done_sem) {
-            xSemaphoreGive(s_adv_done_sem);
-        }
     }
 }
 
@@ -226,72 +191,16 @@ static esp_err_t wait_until_ready_ticks(TickType_t timeout_ticks)
 
 static bool tx_runtime_ready(void)
 {
-    return s_initialized && s_mutex && s_ready_sem && s_adv_done_sem;
+    return s_initialized && s_mutex && s_ready_sem;
 }
 
-static void adv_operation_begin(adv_operation_t *operation)
-{
-    if (!operation) {
-        return;
-    }
-
-    operation->generation = ++s_adv_generation;
-    operation->completed = false;
-    operation->reset = false;
-    operation->reason = BLE_HS_EUNKNOWN;
-    reset_adv_done_signal();
-    s_active_adv_operation = operation;
-}
-
-static void adv_operation_end(adv_operation_t *operation)
-{
-    if (s_active_adv_operation == operation) {
-        s_active_adv_operation = NULL;
-    }
-}
-
-static esp_err_t adv_operation_wait(adv_operation_t *operation, TickType_t timeout_ticks)
-{
-    if (!operation) {
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    if (xSemaphoreTake(s_adv_done_sem, timeout_ticks) != pdTRUE) {
-        adv_operation_end(operation);
-        ESP_LOGW(TAG, "BLE advertising completion timeout");
-        return ESP_ERR_TIMEOUT;
-    }
-
-    adv_operation_end(operation);
-
-    if (operation->reset) {
-        ESP_LOGW(TAG, "BLE advertising aborted by host reset: %d", operation->reason);
-        return ESP_ERR_INVALID_STATE;
-    }
-
-    if (!operation->completed) {
-        ESP_LOGW(TAG, "BLE advertising completion missing");
-        return ESP_ERR_TIMEOUT;
-    }
-
-    if (operation->reason != BLE_HS_ETIMEOUT) {
-        ESP_LOGW(TAG, "BLE advertising ended unexpectedly: %d", operation->reason);
-        return ESP_FAIL;
-    }
-
-    return ESP_OK;
-}
-
-static esp_err_t start_adv_operation(adv_operation_t *operation,
-                                     const struct ble_gap_adv_params *adv_params)
+static esp_err_t start_adv_operation(const struct ble_gap_adv_params *adv_params)
 {
     int rc;
 
-    adv_operation_begin(operation);
     rc = ble_gap_adv_start(s_own_addr_type, NULL, ADV_DURATION_MS, adv_params,
-                           gap_event_cb, (void *)(uintptr_t)operation->generation);
+                           gap_event_cb, NULL);
     if (rc != 0) {
-        adv_operation_end(operation);
         if (!s_ready) {
             ESP_LOGW(TAG, "ble_gap_adv_start interrupted by host reset: %d", rc);
             return ESP_ERR_INVALID_STATE;
@@ -300,7 +209,8 @@ static esp_err_t start_adv_operation(adv_operation_t *operation,
         return ESP_FAIL;
     }
 
-    return adv_operation_wait(operation, pdMS_TO_TICKS(ADV_DURATION_MS + 1000));
+    ESP_LOGI(TAG, "BLE advertising started for %d ms", ADV_DURATION_MS);
+    return ESP_OK;
 }
 
 static void host_task(void *arg)
@@ -364,8 +274,7 @@ esp_err_t ble_button_tx_init(const uint8_t key[16])
 
     s_mutex = xSemaphoreCreateMutex();
     s_ready_sem = xSemaphoreCreateBinary();
-    s_adv_done_sem = xSemaphoreCreateBinary();
-    if (!s_mutex || !s_ready_sem || !s_adv_done_sem) {
+    if (!s_mutex || !s_ready_sem) {
         return ESP_ERR_NO_MEM;
     }
 
@@ -401,7 +310,6 @@ esp_err_t ble_button_tx_send_event(button_event_t event)
     size_t service_data_len = 0;
     struct ble_gap_adv_params adv_params;
     struct ble_hs_adv_fields adv_fields;
-    adv_operation_t operation;
     uint8_t event_code = 0;
     uint32_t next_counter = 0;
     esp_err_t err = ESP_OK;
@@ -479,7 +387,7 @@ esp_err_t ble_button_tx_send_event(button_event_t event)
         }
         s_counter = next_counter;
 
-        err = start_adv_operation(&operation, &adv_params);
+        err = start_adv_operation(&adv_params);
         if (err == ESP_OK) {
             ESP_LOGI(TAG, "sent button event=%u counter=%" PRIu32, (unsigned)event, s_counter);
             xSemaphoreGive(s_mutex);
