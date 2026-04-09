@@ -197,7 +197,7 @@ static void on_sync(void)
     ESP_LOGI(TAG, "BLE ready, advertiser MAC=%s own_addr_type=%u", mac_hex, s_own_addr_type);
 }
 
-static esp_err_t wait_until_ready(TickType_t timeout_ticks)
+static esp_err_t wait_until_ready_ticks(TickType_t timeout_ticks)
 {
     const TickType_t start_ticks = xTaskGetTickCount();
 
@@ -222,6 +222,11 @@ static esp_err_t wait_until_ready(TickType_t timeout_ticks)
     }
 
     return ESP_OK;
+}
+
+static bool tx_runtime_ready(void)
+{
+    return s_initialized && s_mutex && s_ready_sem && s_adv_done_sem;
 }
 
 static void adv_operation_begin(adv_operation_t *operation)
@@ -287,6 +292,10 @@ static esp_err_t start_adv_operation(adv_operation_t *operation,
                            gap_event_cb, (void *)(uintptr_t)operation->generation);
     if (rc != 0) {
         adv_operation_end(operation);
+        if (!s_ready) {
+            ESP_LOGW(TAG, "ble_gap_adv_start interrupted by host reset: %d", rc);
+            return ESP_ERR_INVALID_STATE;
+        }
         ESP_LOGE(TAG, "ble_gap_adv_start failed: %d", rc);
         return ESP_FAIL;
     }
@@ -409,6 +418,10 @@ esp_err_t ble_button_tx_send_event(button_event_t event)
             return ESP_ERR_INVALID_ARG;
     }
 
+    if (!tx_runtime_ready()) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
     xSemaphoreTake(s_mutex, portMAX_DELAY);
 
     if (ble_gap_adv_active()) {
@@ -426,14 +439,10 @@ esp_err_t ble_button_tx_send_event(button_event_t event)
     adv_params.itvl_max = BLE_GAP_ADV_ITVL_MS(50);
 
     for (int attempt = 0; attempt < 2; attempt++) {
-        err = wait_until_ready(pdMS_TO_TICKS(3000));
+        err = wait_until_ready_ticks(pdMS_TO_TICKS(3000));
         if (err != ESP_OK) {
             xSemaphoreGive(s_mutex);
             return err;
-        }
-
-        if (!s_ready) {
-            continue;
         }
 
         next_counter = s_counter + 1;
