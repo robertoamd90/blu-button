@@ -8,5 +8,5 @@
 esp_err_t ble_button_tx_init(const uint8_t key[16]);
 /* Requires successful init() in the current wake cycle and owns send-time recovery. */
 esp_err_t ble_button_tx_send_event(button_event_t event);
-/* Waits until the current advertising session completes or times out. */
+/* Waits until the current advertising session completes or the local adv deadline is enforced. */
 esp_err_t ble_button_tx_wait_for_adv_complete(void);
