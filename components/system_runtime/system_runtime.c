@@ -62,6 +62,9 @@ void system_runtime_init(void)
     gpio_wake_capture_t wake_capture = {0};
     bool ble_ready_for_event = false;
 
+    /* Arm edge capture immediately after wake so bootstrap work does not eat clicks. */
+    ESP_ERROR_CHECK(gpio_manager_begin_wake_capture(&wake_capture, wakeup_causes));
+
     init_nvs_or_die();
     ESP_ERROR_CHECK(device_identity_init());
     err = led_feedback_init();
@@ -73,7 +76,6 @@ void system_runtime_init(void)
         print_registration_credentials();
     }
 
-    ESP_ERROR_CHECK(gpio_manager_begin_wake_capture(&wake_capture, wakeup_causes));
     if (wake_capture.armed) {
         err = ble_button_tx_init(device_identity_get_key());
         if (err != ESP_OK) {
