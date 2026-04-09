@@ -398,7 +398,7 @@ static void gesture_session_apply_initial_wake_state(gesture_session_t *session,
         return;
     }
 
-    if (state->implicit_initial_press && (state->sampled_pressed || state->have_queued_edges)) {
+    if (state->implicit_initial_press && state->sampled_pressed) {
         session->tracker.raw_pressed = true;
         session->tracker.stable_pressed = true;
         session->tracker.raw_changed_ms = 0;
