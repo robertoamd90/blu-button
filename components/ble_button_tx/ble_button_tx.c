@@ -4,6 +4,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "freertos/timers.h"
 #include "host/ble_gap.h"
 #include "host/ble_hs.h"
 #include "host/util/util.h"
@@ -24,11 +25,23 @@ static const char *NVS_KEY_COUNTER = "counter";
 #define BTHOME_OBJ_PACKET_ID 0x00
 #define BTHOME_OBJ_BUTTON    0x3A
 
+#define BTHOME_PLAINTEXT_LEN 4
+#define BTHOME_COUNTER_LEN 4
+#define BTHOME_NONCE_LEN 13
+#define BTHOME_TAG_LEN 4
+#define BTHOME_CIPHERTEXT_AND_TAG_LEN (BTHOME_PLAINTEXT_LEN + BTHOME_TAG_LEN)
+#define BTHOME_SERVICE_DATA_LEN (2 + 1 + BTHOME_PLAINTEXT_LEN + BTHOME_COUNTER_LEN + BTHOME_TAG_LEN)
+
 #define ADV_DURATION_MS 200
+#define ADV_STOP_GRACE_MS 50
+#define ADV_WAIT_POLL_MS 20
+#define ADV_STOP_TIMEOUT_MS (ADV_DURATION_MS + ADV_STOP_GRACE_MS)
+#define ADV_WAIT_TIMEOUT_MS (ADV_STOP_TIMEOUT_MS + ADV_WAIT_POLL_MS)
+#define BLE_READY_TIMEOUT_MS 3000
 
 static SemaphoreHandle_t s_mutex = NULL;
 static SemaphoreHandle_t s_ready_sem = NULL;
-static SemaphoreHandle_t s_adv_done_sem = NULL;
+static TimerHandle_t s_adv_stop_timer = NULL;
 static bool s_initialized = false;
 static bool s_ready = false;
 static bool s_adv_active = false;
@@ -55,9 +68,80 @@ static void reset_ready_signal(void)
     reset_signal(s_ready_sem);
 }
 
-static void reset_adv_done_signal(void)
+static TickType_t adv_wait_ticks_until_deadline(void)
 {
-    reset_signal(s_adv_done_sem);
+    const TickType_t now = xTaskGetTickCount();
+    const int32_t remaining_ticks = (int32_t)(s_adv_deadline_ticks - now);
+
+    return remaining_ticks > 0 ? (TickType_t)remaining_ticks : 0;
+}
+
+static void stop_adv_stop_timer(void)
+{
+    if (s_adv_stop_timer) {
+        xTimerStop(s_adv_stop_timer, 0);
+    }
+}
+
+static void clear_adv_state(void)
+{
+    s_adv_active = false;
+    s_adv_deadline_ticks = 0;
+}
+
+static esp_err_t stop_active_advertising(uint32_t expected_generation, bool stop_timer)
+{
+    int rc;
+
+    if (!s_adv_active) {
+        return ESP_OK;
+    }
+
+    if (expected_generation != 0 && expected_generation != s_active_adv_generation) {
+        return ESP_OK;
+    }
+
+    rc = ble_gap_adv_stop();
+    if (rc == 0 || rc == BLE_HS_EALREADY) {
+        if (stop_timer) {
+            stop_adv_stop_timer();
+        }
+        clear_adv_state();
+        return ESP_OK;
+    }
+
+    ESP_LOGE(TAG, "ble_gap_adv_stop failed: %d", rc);
+    return ESP_FAIL;
+}
+
+static void adv_stop_timer_cb(TimerHandle_t timer)
+{
+    const uint32_t generation = (uint32_t)(uintptr_t)pvTimerGetTimerID(timer);
+
+    if (!s_adv_active || generation != s_active_adv_generation) {
+        return;
+    }
+
+    ESP_LOGI(TAG, "BLE advertising deadline reached locally after %d ms; stopping explicitly",
+             ADV_DURATION_MS + ADV_STOP_GRACE_MS);
+    (void)stop_active_advertising(generation, false);
+}
+
+static esp_err_t arm_adv_stop_timer(uint32_t generation)
+{
+    if (!s_adv_stop_timer) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    vTimerSetTimerID(s_adv_stop_timer, (void *)(uintptr_t)generation);
+    if (xTimerChangePeriod(s_adv_stop_timer,
+                           pdMS_TO_TICKS(ADV_STOP_TIMEOUT_MS),
+                           0) != pdPASS) {
+        ESP_LOGE(TAG, "failed to arm advertising stop timer");
+        return ESP_FAIL;
+    }
+
+    return ESP_OK;
 }
 
 static esp_err_t counter_load(void)
@@ -119,32 +203,48 @@ static esp_err_t import_key(const uint8_t key[16])
     return ESP_OK;
 }
 
-static int gap_event_cb(struct ble_gap_event *event, void *arg)
+static esp_err_t button_event_to_event_code(button_event_t event, uint8_t *out_event_code)
 {
-    const uint32_t generation = (uint32_t)(uintptr_t)arg;
-
-    if (event->type == BLE_GAP_EVENT_ADV_COMPLETE) {
-        ESP_LOGI(TAG, "BLE advertising completed with reason=%d", event->adv_complete.reason);
-        if (generation == s_active_adv_generation) {
-            s_adv_active = false;
-            if (s_adv_done_sem) {
-                xSemaphoreGive(s_adv_done_sem);
-            }
-        }
+    if (!out_event_code) {
+        return ESP_ERR_INVALID_ARG;
     }
 
-    return 0;
+    switch (event) {
+        case BUTTON_EVENT_SINGLE_PRESS:
+        case BUTTON_EVENT_DOUBLE_PRESS:
+        case BUTTON_EVENT_TRIPLE_PRESS:
+        case BUTTON_EVENT_LONG_PRESS:
+            *out_event_code = (uint8_t)event;
+            return ESP_OK;
+        default:
+            return ESP_ERR_INVALID_ARG;
+    }
+}
+
+static void init_adv_fields(struct ble_hs_adv_fields *adv_fields,
+                            uint8_t *service_data)
+{
+    memset(adv_fields, 0, sizeof(*adv_fields));
+    adv_fields->flags = BLE_HS_ADV_F_BREDR_UNSUP;
+    adv_fields->svc_data_uuid16 = service_data;
+}
+
+static void init_adv_params(struct ble_gap_adv_params *adv_params)
+{
+    memset(adv_params, 0, sizeof(*adv_params));
+    adv_params->conn_mode = BLE_GAP_CONN_MODE_NON;
+    adv_params->disc_mode = BLE_GAP_DISC_MODE_GEN;
+    adv_params->itvl_min = BLE_GAP_ADV_ITVL_MS(30);
+    adv_params->itvl_max = BLE_GAP_ADV_ITVL_MS(50);
 }
 
 static void on_reset(int reason)
 {
     ESP_LOGW(TAG, "BLE host reset: %d", reason);
     s_ready = false;
-    s_adv_active = false;
+    stop_adv_stop_timer();
+    clear_adv_state();
     reset_ready_signal();
-    if (s_adv_done_sem) {
-        xSemaphoreGive(s_adv_done_sem);
-    }
     if (s_ready_sem) {
         xSemaphoreGive(s_ready_sem);
     }
@@ -211,22 +311,19 @@ static esp_err_t wait_until_ready_ticks(TickType_t timeout_ticks)
 
 static bool tx_runtime_ready(void)
 {
-    return s_initialized && s_mutex && s_ready_sem && s_adv_done_sem;
+    return s_initialized && s_mutex && s_ready_sem && s_adv_stop_timer;
 }
 
 static esp_err_t start_adv_operation(const struct ble_gap_adv_params *adv_params)
 {
+    esp_err_t err;
     int rc;
     const uint32_t generation = ++s_adv_generation;
 
-    s_active_adv_generation = generation;
-    s_adv_active = true;
-    s_adv_deadline_ticks = xTaskGetTickCount() + pdMS_TO_TICKS(ADV_DURATION_MS);
-    reset_adv_done_signal();
     rc = ble_gap_adv_start(s_own_addr_type, NULL, ADV_DURATION_MS, adv_params,
-                           gap_event_cb, (void *)(uintptr_t)generation);
+                           NULL, NULL);
     if (rc != 0) {
-        s_adv_active = false;
+        clear_adv_state();
         if (!s_ready) {
             ESP_LOGW(TAG, "ble_gap_adv_start interrupted by host reset: %d", rc);
             return ESP_ERR_INVALID_STATE;
@@ -235,34 +332,56 @@ static esp_err_t start_adv_operation(const struct ble_gap_adv_params *adv_params
         return ESP_FAIL;
     }
 
+    s_active_adv_generation = generation;
+    s_adv_active = true;
+    s_adv_deadline_ticks = xTaskGetTickCount() +
+                           pdMS_TO_TICKS(ADV_STOP_TIMEOUT_MS);
+    err = arm_adv_stop_timer(generation);
+    if (err != ESP_OK) {
+        (void)stop_active_advertising(generation, false);
+        return err;
+    }
+
     ESP_LOGI(TAG, "BLE advertising started for %d ms", ADV_DURATION_MS);
     return ESP_OK;
 }
 
 esp_err_t ble_button_tx_wait_for_adv_complete(void)
 {
-    if (!tx_runtime_ready() || !s_adv_done_sem) {
+    TickType_t elapsed_ticks = 0;
+    TickType_t wait_ticks;
+    uint32_t wait_generation;
+
+    if (!tx_runtime_ready()) {
         return ESP_ERR_INVALID_STATE;
     }
 
-    while (ble_gap_adv_active()) {
-        TickType_t now_ticks = xTaskGetTickCount();
-        TickType_t remaining_ticks;
-
-        if (now_ticks >= s_adv_deadline_ticks) {
-            ESP_LOGW(TAG, "BLE advertising window elapsed");
-            break;
-        }
-
-        remaining_ticks = s_adv_deadline_ticks - now_ticks;
-        if (remaining_ticks > pdMS_TO_TICKS(20)) {
-            remaining_ticks = pdMS_TO_TICKS(20);
-        }
-
-        vTaskDelay(remaining_ticks);
+    wait_generation = s_active_adv_generation;
+    if (!s_adv_active || wait_generation == 0) {
+        return ESP_OK;
     }
 
-    return ESP_OK;
+    while (s_adv_active && s_active_adv_generation == wait_generation) {
+        wait_ticks = adv_wait_ticks_until_deadline();
+        if (wait_ticks == 0 || wait_ticks > pdMS_TO_TICKS(ADV_WAIT_POLL_MS)) {
+            wait_ticks = pdMS_TO_TICKS(ADV_WAIT_POLL_MS);
+        }
+
+        vTaskDelay(wait_ticks);
+        elapsed_ticks += wait_ticks;
+
+        if (elapsed_ticks > pdMS_TO_TICKS(ADV_WAIT_TIMEOUT_MS)) {
+            break;
+        }
+    }
+
+    if (!s_adv_active || s_active_adv_generation != wait_generation) {
+        return ESP_OK;
+    }
+
+    ESP_LOGW(TAG, "BLE advertising session %" PRIu32 " outlived the local stop timer; forcing stop",
+             wait_generation);
+    return stop_active_advertising(wait_generation, true);
 }
 
 static void host_task(void *arg)
@@ -272,14 +391,14 @@ static void host_task(void *arg)
     nimble_port_freertos_deinit();
 }
 
-static esp_err_t encrypt_payload(const uint8_t plaintext[4],
+static esp_err_t encrypt_payload(const uint8_t plaintext[BTHOME_PLAINTEXT_LEN],
                                  uint32_t counter,
-                                 uint8_t out_service_data[2 + 1 + 4 + 4 + 4],
+                                 uint8_t out_service_data[BTHOME_SERVICE_DATA_LEN],
                                  size_t *out_len)
 {
-    uint8_t counter_le[4];
-    uint8_t nonce[13];
-    uint8_t ciphertext_and_tag[8];
+    uint8_t counter_le[BTHOME_COUNTER_LEN];
+    uint8_t nonce[BTHOME_NONCE_LEN];
+    uint8_t ciphertext_and_tag[BTHOME_CIPHERTEXT_AND_TAG_LEN];
     size_t ct_len = 0;
     psa_status_t status;
 
@@ -297,7 +416,7 @@ static esp_err_t encrypt_payload(const uint8_t plaintext[4],
                               PSA_ALG_AEAD_WITH_SHORTENED_TAG(PSA_ALG_CCM, 4),
                               nonce, sizeof(nonce),
                               NULL, 0,
-                              plaintext, 4,
+                              plaintext, BTHOME_PLAINTEXT_LEN,
                               ciphertext_and_tag, sizeof(ciphertext_and_tag),
                               &ct_len);
     if (status != PSA_SUCCESS) {
@@ -308,10 +427,12 @@ static esp_err_t encrypt_payload(const uint8_t plaintext[4],
     out_service_data[0] = BTHOME_UUID_LO;
     out_service_data[1] = BTHOME_UUID_HI;
     out_service_data[2] = BTHOME_DEVICE_INFO_ENCRYPTED_V2;
-    memcpy(&out_service_data[3], ciphertext_and_tag, 4);
-    memcpy(&out_service_data[7], counter_le, 4);
-    memcpy(&out_service_data[11], &ciphertext_and_tag[4], 4);
-    *out_len = 15;
+    memcpy(&out_service_data[3], ciphertext_and_tag, BTHOME_PLAINTEXT_LEN);
+    memcpy(&out_service_data[3 + BTHOME_PLAINTEXT_LEN], counter_le, BTHOME_COUNTER_LEN);
+    memcpy(&out_service_data[3 + BTHOME_PLAINTEXT_LEN + BTHOME_COUNTER_LEN],
+           &ciphertext_and_tag[BTHOME_PLAINTEXT_LEN],
+           BTHOME_TAG_LEN);
+    *out_len = BTHOME_SERVICE_DATA_LEN;
     return ESP_OK;
 }
 
@@ -326,8 +447,12 @@ esp_err_t ble_button_tx_init(const uint8_t key[16])
 
     s_mutex = xSemaphoreCreateMutex();
     s_ready_sem = xSemaphoreCreateBinary();
-    s_adv_done_sem = xSemaphoreCreateBinary();
-    if (!s_mutex || !s_ready_sem || !s_adv_done_sem) {
+    s_adv_stop_timer = xTimerCreate("adv_stop",
+                                    pdMS_TO_TICKS(ADV_STOP_TIMEOUT_MS),
+                                    pdFALSE,
+                                    NULL,
+                                    adv_stop_timer_cb);
+    if (!s_mutex || !s_ready_sem || !s_adv_stop_timer) {
         return ESP_ERR_NO_MEM;
     }
 
@@ -358,25 +483,19 @@ esp_err_t ble_button_tx_init(const uint8_t key[16])
 
 esp_err_t ble_button_tx_send_event(button_event_t event)
 {
-    uint8_t plaintext[4];
-    uint8_t service_data[15];
+    uint8_t plaintext[BTHOME_PLAINTEXT_LEN];
+    uint8_t service_data[BTHOME_SERVICE_DATA_LEN];
     size_t service_data_len = 0;
     struct ble_gap_adv_params adv_params;
     struct ble_hs_adv_fields adv_fields;
-    uint8_t event_code = 0;
+    uint8_t event_code;
     uint32_t next_counter = 0;
     esp_err_t err = ESP_OK;
     int rc;
 
-    switch (event) {
-        case BUTTON_EVENT_SINGLE_PRESS:
-        case BUTTON_EVENT_DOUBLE_PRESS:
-        case BUTTON_EVENT_TRIPLE_PRESS:
-        case BUTTON_EVENT_LONG_PRESS:
-            event_code = (uint8_t)event;
-            break;
-        default:
-            return ESP_ERR_INVALID_ARG;
+    err = button_event_to_event_code(event, &event_code);
+    if (err != ESP_OK) {
+        return err;
     }
 
     if (!tx_runtime_ready()) {
@@ -385,22 +504,19 @@ esp_err_t ble_button_tx_send_event(button_event_t event)
 
     xSemaphoreTake(s_mutex, portMAX_DELAY);
 
-    if (ble_gap_adv_active()) {
-        ble_gap_adv_stop();
+    if (s_adv_active) {
+        err = stop_active_advertising(0, true);
+        if (err != ESP_OK) {
+            xSemaphoreGive(s_mutex);
+            return err;
+        }
     }
 
-    memset(&adv_fields, 0, sizeof(adv_fields));
-    adv_fields.flags = BLE_HS_ADV_F_BREDR_UNSUP;
-    adv_fields.svc_data_uuid16 = service_data;
-
-    memset(&adv_params, 0, sizeof(adv_params));
-    adv_params.conn_mode = BLE_GAP_CONN_MODE_NON;
-    adv_params.disc_mode = BLE_GAP_DISC_MODE_NON;
-    adv_params.itvl_min = BLE_GAP_ADV_ITVL_MS(30);
-    adv_params.itvl_max = BLE_GAP_ADV_ITVL_MS(50);
+    init_adv_fields(&adv_fields, service_data);
+    init_adv_params(&adv_params);
 
     for (int attempt = 0; attempt < 2; attempt++) {
-        err = wait_until_ready_ticks(pdMS_TO_TICKS(3000));
+        err = wait_until_ready_ticks(pdMS_TO_TICKS(BLE_READY_TIMEOUT_MS));
         if (err != ESP_OK) {
             xSemaphoreGive(s_mutex);
             return err;
@@ -419,10 +535,6 @@ esp_err_t ble_button_tx_send_event(button_event_t event)
         }
         adv_fields.svc_data_uuid16_len = service_data_len;
 
-        if (ble_gap_adv_active()) {
-            ble_gap_adv_stop();
-        }
-
         rc = ble_gap_adv_set_fields(&adv_fields);
         if (rc != 0) {
             if (!s_ready && attempt == 0) {
@@ -433,6 +545,7 @@ esp_err_t ble_button_tx_send_event(button_event_t event)
             return ESP_FAIL;
         }
 
+        /* Persist before advertising so resets cannot reuse a packet counter. */
         err = counter_save(next_counter);
         if (err != ESP_OK) {
             xSemaphoreGive(s_mutex);
