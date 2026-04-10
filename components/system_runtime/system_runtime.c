@@ -96,7 +96,9 @@ void system_runtime_init(void)
             case BUTTON_EVENT_LONG_PRESS:
             {
                 if (ble_ready_for_event) {
-                    err = ble_button_tx_send_event(event, 1, 1);
+                    err = ble_button_tx_send_event(event,
+                                                   wake_capture.active_button,
+                                                   wake_capture.button_count);
                     if (err != ESP_OK) {
                         ESP_LOGW(TAG, "BLE send failed for event %d: %s", (int)event, esp_err_to_name(err));
                     } else {

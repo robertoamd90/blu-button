@@ -1,9 +1,11 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stddef.h>
 
 int board_config_system_led_gpio(void);
 bool board_config_system_led_active_low(void);
 
-int board_config_boot_button_gpio(void);
+size_t board_config_button_count(void);
+int board_config_button_gpio(size_t index);
 bool board_config_boot_button_active_low(void);
