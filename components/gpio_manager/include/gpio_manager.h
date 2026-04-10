@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 #include "esp_err.h"
 #include "button_event.h"
@@ -13,6 +14,8 @@
 typedef struct {
     uint32_t wakeup_causes;
     bool armed;
+    size_t active_button;
+    size_t button_count;
 } gpio_wake_capture_t;
 
 bool gpio_manager_boot_button_pressed(void);

@@ -24,9 +24,9 @@ static const char *TAG = "gpio_manager";
 #define BUTTON_MAINTENANCE_MS  10000
 #define BUTTON_EDGE_QUEUE_LEN     16
 
-static bool s_button_level_ready = false;
+static gpio_num_t s_button_level_gpio = GPIO_NUM_NC;
 static bool s_isr_service_installed = false;
-static bool s_button_edge_capture_ready = false;
+static gpio_num_t s_button_edge_gpio = GPIO_NUM_NC;
 static bool s_button_active_low = true;
 static QueueHandle_t s_button_edge_queue = NULL;
 static volatile bool s_button_edge_overflow = false;
@@ -89,15 +89,47 @@ static void IRAM_ATTR button_gpio_isr_handler(void *arg)
     }
 }
 
-static esp_err_t configure_button_level_input(void)
+static bool supports_multi_button_wakeup(void)
 {
-    const gpio_num_t button_gpio = (gpio_num_t)board_config_boot_button_gpio();
+#if SOC_GPIO_SUPPORT_HP_PERIPH_PD_SLEEP_WAKEUP
+    return true;
+#elif SOC_PM_SUPPORT_EXT1_WAKEUP && !CONFIG_IDF_TARGET_ESP32
+    return true;
+#else
+    return false;
+#endif
+}
 
-    if (s_button_level_ready) {
-        return ESP_OK;
+static size_t effective_button_count(void)
+{
+    const size_t configured_count = board_config_button_count();
+
+    if (configured_count == 0) {
+        return 0;
     }
 
+    return supports_multi_button_wakeup() ? configured_count : 1;
+}
+
+static esp_err_t get_button_gpio(size_t index, gpio_num_t *out_gpio)
+{
+    const int button_gpio = board_config_button_gpio(index);
+
+    if (!out_gpio || button_gpio < 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    *out_gpio = (gpio_num_t)button_gpio;
+    return ESP_OK;
+}
+
+static esp_err_t configure_button_level_input_for(gpio_num_t button_gpio)
+{
     s_button_active_low = board_config_boot_button_active_low();
+
+    if (s_button_level_gpio == button_gpio) {
+        return ESP_OK;
+    }
 
     gpio_config_t btn_cfg = {
         .pin_bit_mask = 1ULL << button_gpio,
@@ -111,19 +143,18 @@ static esp_err_t configure_button_level_input(void)
         return err;
     }
 
-    s_button_level_ready = true;
+    s_button_level_gpio = button_gpio;
     return ESP_OK;
 }
 
-static esp_err_t configure_button_edge_capture(void)
+static esp_err_t configure_button_edge_capture_for(gpio_num_t button_gpio)
 {
-    const gpio_num_t button_gpio = (gpio_num_t)board_config_boot_button_gpio();
-    esp_err_t err = configure_button_level_input();
+    esp_err_t err = configure_button_level_input_for(button_gpio);
     if (err != ESP_OK) {
         return err;
     }
 
-    if (s_button_edge_capture_ready) {
+    if (s_button_edge_gpio == button_gpio) {
         return ESP_OK;
     }
 
@@ -152,17 +183,29 @@ static esp_err_t configure_button_edge_capture(void)
         return err;
     }
 
-    s_button_edge_capture_ready = true;
+    s_button_edge_gpio = button_gpio;
     return ESP_OK;
+}
+
+static bool button_pressed_for(gpio_num_t button_gpio)
+{
+    if (configure_button_level_input_for(button_gpio) != ESP_OK) {
+        return false;
+    }
+
+    int level = gpio_get_level(button_gpio);
+    return s_button_active_low ? (level == 0) : (level != 0);
 }
 
 bool gpio_manager_boot_button_pressed(void)
 {
-    if (configure_button_level_input() != ESP_OK) {
+    gpio_num_t button_gpio;
+
+    if (get_button_gpio(0, &button_gpio) != ESP_OK) {
         return false;
     }
-    int level = gpio_get_level((gpio_num_t)board_config_boot_button_gpio());
-    return s_button_active_low ? (level == 0) : (level != 0);
+
+    return button_pressed_for(button_gpio);
 }
 
 static uint32_t current_boot_elapsed_ms(void)
@@ -348,16 +391,212 @@ static bool gesture_session_apply_queued_edge(gesture_session_t *session,
     return false;
 }
 
-static bool woke_from_boot_button(uint32_t wakeup_causes)
+static bool woke_from_button_gpio(uint32_t wakeup_causes)
 {
     return (wakeup_causes & BIT(ESP_SLEEP_WAKEUP_EXT0)) != 0
         || (wakeup_causes & BIT(ESP_SLEEP_WAKEUP_EXT1)) != 0
         || (wakeup_causes & BIT(ESP_SLEEP_WAKEUP_GPIO)) != 0;
 }
 
-static bool has_wake_session(uint32_t wakeup_causes)
+static uint64_t wakeup_button_mask(uint32_t wakeup_causes)
 {
-    return gpio_manager_boot_button_pressed() || woke_from_boot_button(wakeup_causes);
+#if SOC_PM_SUPPORT_EXT1_WAKEUP
+    if ((wakeup_causes & BIT(ESP_SLEEP_WAKEUP_EXT1)) != 0) {
+        return esp_sleep_get_ext1_wakeup_status();
+    }
+#endif
+
+#if SOC_GPIO_SUPPORT_HP_PERIPH_PD_SLEEP_WAKEUP
+    if ((wakeup_causes & BIT(ESP_SLEEP_WAKEUP_GPIO)) != 0) {
+        return esp_sleep_get_gpio_wakeup_status();
+    }
+#endif
+
+#if SOC_PM_SUPPORT_EXT0_WAKEUP
+    if ((wakeup_causes & BIT(ESP_SLEEP_WAKEUP_EXT0)) != 0) {
+        gpio_num_t button_gpio;
+
+        if (get_button_gpio(0, &button_gpio) == ESP_OK) {
+            return 1ULL << button_gpio;
+        }
+    }
+#endif
+
+    return 0;
+}
+
+static size_t unique_button_from_wakeup_mask(uint64_t wakeup_mask,
+                                             size_t button_count,
+                                             bool *out_ambiguous)
+{
+    size_t masked_button = 0;
+
+    if (out_ambiguous) {
+        *out_ambiguous = false;
+    }
+
+    for (size_t index = 0; index < button_count; index++) {
+        gpio_num_t button_gpio;
+
+        if (get_button_gpio(index, &button_gpio) != ESP_OK) {
+            continue;
+        }
+
+        if ((wakeup_mask & (1ULL << button_gpio)) != 0) {
+            if (masked_button != 0) {
+                if (out_ambiguous) {
+                    *out_ambiguous = true;
+                }
+                return 0;
+            }
+            masked_button = index + 1;
+        }
+    }
+
+    return masked_button;
+}
+
+static size_t unique_pressed_button(size_t button_count,
+                                    bool *out_ambiguous)
+{
+    size_t pressed_button = 0;
+
+    if (out_ambiguous) {
+        *out_ambiguous = false;
+    }
+
+    for (size_t index = 0; index < button_count; index++) {
+        gpio_num_t button_gpio;
+
+        if (get_button_gpio(index, &button_gpio) != ESP_OK) {
+            continue;
+        }
+
+        if (button_pressed_for(button_gpio)) {
+            if (pressed_button != 0) {
+                if (out_ambiguous) {
+                    *out_ambiguous = true;
+                }
+                return 0;
+            }
+            pressed_button = index + 1;
+        }
+    }
+
+    return pressed_button;
+}
+
+static size_t unique_pressed_button_from_wakeup_mask(uint64_t wakeup_mask,
+                                                     size_t button_count,
+                                                     bool *out_ambiguous)
+{
+    size_t pressed_button = 0;
+
+    if (out_ambiguous) {
+        *out_ambiguous = false;
+    }
+
+    for (size_t index = 0; index < button_count; index++) {
+        gpio_num_t button_gpio;
+
+        if (get_button_gpio(index, &button_gpio) != ESP_OK) {
+            continue;
+        }
+
+        if ((wakeup_mask & (1ULL << button_gpio)) == 0) {
+            continue;
+        }
+
+        if (button_pressed_for(button_gpio)) {
+            if (pressed_button != 0) {
+                if (out_ambiguous) {
+                    *out_ambiguous = true;
+                }
+                return 0;
+            }
+            pressed_button = index + 1;
+        }
+    }
+
+    return pressed_button;
+}
+
+static size_t resolve_active_button(uint32_t wakeup_causes,
+                                    size_t button_count)
+{
+    const uint64_t wake_mask = wakeup_button_mask(wakeup_causes);
+    bool ambiguous = false;
+    size_t active_button;
+
+    active_button = unique_button_from_wakeup_mask(wake_mask, button_count, &ambiguous);
+    if (active_button != 0) {
+        ESP_LOGI(TAG, "resolved wake button %u/%u from wake mask 0x%llx",
+                 (unsigned)active_button,
+                 (unsigned)button_count,
+                 (unsigned long long)wake_mask);
+        return active_button;
+    }
+
+    if (ambiguous) {
+        bool pressed_ambiguous = false;
+
+        active_button = unique_pressed_button_from_wakeup_mask(wake_mask,
+                                                               button_count,
+                                                               &pressed_ambiguous);
+        if (active_button != 0) {
+            ESP_LOGW(TAG, "wake mask 0x%llx matched multiple buttons; using uniquely pressed masked button %u/%u",
+                     (unsigned long long)wake_mask,
+                     (unsigned)active_button,
+                     (unsigned)button_count);
+            return active_button;
+        }
+
+        if (pressed_ambiguous) {
+            ESP_LOGW(TAG, "wake mask 0x%llx matched multiple buttons and multiple masked buttons are still pressed",
+                     (unsigned long long)wake_mask);
+        } else {
+            ESP_LOGW(TAG, "wake mask 0x%llx matched multiple buttons and no unique masked button is still pressed",
+                     (unsigned long long)wake_mask);
+        }
+    }
+
+    if (!woke_from_button_gpio(wakeup_causes)) {
+        return 0;
+    }
+
+    active_button = unique_pressed_button(button_count, &ambiguous);
+    if (active_button != 0) {
+        ESP_LOGW(TAG, "wake mask 0x%llx did not resolve a button; falling back to uniquely pressed button %u/%u",
+                 (unsigned long long)wake_mask,
+                 (unsigned)active_button,
+                 (unsigned)button_count);
+        return active_button;
+    }
+
+    if (ambiguous) {
+        ESP_LOGW(TAG, "wake mask 0x%llx unresolved and multiple buttons are currently pressed",
+                 (unsigned long long)wake_mask);
+    } else {
+        ESP_LOGW(TAG, "wake mask 0x%llx unresolved and no unique pressed button was found",
+                 (unsigned long long)wake_mask);
+    }
+
+    return 0;
+}
+
+static gpio_num_t capture_button_gpio(const gpio_wake_capture_t *capture)
+{
+    gpio_num_t button_gpio;
+
+    if (!capture || capture->active_button == 0) {
+        return GPIO_NUM_NC;
+    }
+
+    if (get_button_gpio(capture->active_button - 1, &button_gpio) != ESP_OK) {
+        return GPIO_NUM_NC;
+    }
+
+    return button_gpio;
 }
 
 esp_err_t gpio_manager_begin_wake_capture(gpio_wake_capture_t *capture,
@@ -368,27 +607,33 @@ esp_err_t gpio_manager_begin_wake_capture(gpio_wake_capture_t *capture,
     }
 
     capture->wakeup_causes = wakeup_causes;
-    capture->armed = has_wake_session(wakeup_causes);
+    capture->button_count = effective_button_count();
+    capture->active_button = resolve_active_button(wakeup_causes, capture->button_count);
+    capture->armed = capture->active_button != 0;
     if (!capture->armed) {
         return ESP_OK;
     }
 
-    return configure_button_edge_capture();
+    return configure_button_edge_capture_for(capture_button_gpio(capture));
 }
 
 static void build_wake_capture_state(const gpio_wake_capture_t *capture,
                                      wake_capture_state_t *state)
 {
+    gpio_num_t button_gpio;
+
     if (!capture || !state) {
         return;
     }
 
+    button_gpio = capture_button_gpio(capture);
     memset(state, 0, sizeof(*state));
     state->armed = capture->armed;
-    state->implicit_initial_press = woke_from_boot_button(capture->wakeup_causes);
+    state->implicit_initial_press = capture->active_button != 0
+                                 && woke_from_button_gpio(capture->wakeup_causes);
     state->have_queued_edges = s_button_edge_queue && uxQueueMessagesWaiting(s_button_edge_queue) > 0;
     state->now_ms = current_boot_elapsed_ms();
-    state->sampled_pressed = gpio_manager_boot_button_pressed();
+    state->sampled_pressed = (button_gpio != GPIO_NUM_NC) && button_pressed_for(button_gpio);
 }
 
 static void gesture_session_apply_initial_wake_state(gesture_session_t *session,
@@ -424,6 +669,7 @@ esp_err_t gpio_manager_finish_wake_capture(const gpio_wake_capture_t *capture,
                                            bool *out_have_event)
 {
     button_edge_event_t edge_event;
+    const gpio_num_t button_gpio = capture_button_gpio(capture);
     uint32_t now_ms;
     wake_capture_state_t state;
 
@@ -436,6 +682,10 @@ esp_err_t gpio_manager_finish_wake_capture(const gpio_wake_capture_t *capture,
 
     if (!capture->armed) {
         return ESP_OK;
+    }
+
+    if (button_gpio == GPIO_NUM_NC) {
+        return ESP_ERR_INVALID_STATE;
     }
 
     build_wake_capture_state(capture, &state);
@@ -471,7 +721,7 @@ esp_err_t gpio_manager_finish_wake_capture(const gpio_wake_capture_t *capture,
         if (s_button_edge_overflow) {
             while (xQueueReceive(s_button_edge_queue, &edge_event, 0) == pdTRUE) {
             }
-            gesture_session_note_raw_state(&gesture_session, gpio_manager_boot_button_pressed(), now_ms);
+            gesture_session_note_raw_state(&gesture_session, button_pressed_for(button_gpio), now_ms);
             s_button_edge_overflow = false;
         } else if (got_edge == pdTRUE) {
             do {
@@ -480,7 +730,7 @@ esp_err_t gpio_manager_finish_wake_capture(const gpio_wake_capture_t *capture,
                 }
             } while (xQueueReceive(s_button_edge_queue, &edge_event, 0) == pdTRUE);
         } else {
-            gesture_session_note_raw_state(&gesture_session, gpio_manager_boot_button_pressed(), now_ms);
+            gesture_session_note_raw_state(&gesture_session, button_pressed_for(button_gpio), now_ms);
         }
 
         if (gesture_session_finalize(&gesture_session, now_ms, out_event, out_have_event)) {
@@ -497,30 +747,45 @@ esp_err_t gpio_manager_finish_wake_capture(const gpio_wake_capture_t *capture,
 
 esp_err_t gpio_manager_enable_boot_button_wakeup(void)
 {
-    const gpio_num_t wake_gpio = (gpio_num_t)board_config_boot_button_gpio();
+    const size_t button_count = effective_button_count();
     const bool active_low = board_config_boot_button_active_low();
     const int wake_level = active_low ? 0 : 1;
+    uint64_t wake_gpio_mask = 0;
+    gpio_num_t wake_gpio = GPIO_NUM_NC;
 
-    esp_err_t err = configure_button_level_input();
-    if (err != ESP_OK) {
-        return err;
+    if (button_count == 0) {
+        return ESP_ERR_INVALID_STATE;
     }
 
-    if (!esp_sleep_is_valid_wakeup_gpio(wake_gpio)) {
-        ESP_LOGE(TAG, "GPIO %d is not a valid deep-sleep wake source", (int)wake_gpio);
-        return ESP_ERR_INVALID_ARG;
+    for (size_t index = 0; index < button_count; index++) {
+        esp_err_t err = get_button_gpio(index, &wake_gpio);
+        if (err != ESP_OK) {
+            return err;
+        }
+
+        err = configure_button_level_input_for(wake_gpio);
+        if (err != ESP_OK) {
+            return err;
+        }
+
+        if (!esp_sleep_is_valid_wakeup_gpio(wake_gpio)) {
+            ESP_LOGE(TAG, "GPIO %d is not a valid deep-sleep wake source", (int)wake_gpio);
+            return ESP_ERR_INVALID_ARG;
+        }
+        wake_gpio_mask |= 1ULL << wake_gpio;
     }
 
+    esp_err_t err;
 #if SOC_PM_SUPPORT_EXT1_WAKEUP
 #if CONFIG_IDF_TARGET_ESP32
     esp_sleep_ext1_wakeup_mode_t mode = active_low ? ESP_EXT1_WAKEUP_ALL_LOW : ESP_EXT1_WAKEUP_ANY_HIGH;
 #else
     esp_sleep_ext1_wakeup_mode_t mode = active_low ? ESP_EXT1_WAKEUP_ANY_LOW : ESP_EXT1_WAKEUP_ANY_HIGH;
 #endif
-    err = esp_sleep_enable_ext1_wakeup_io(1ULL << wake_gpio, mode);
+    err = esp_sleep_enable_ext1_wakeup_io(wake_gpio_mask, mode);
 #elif SOC_GPIO_SUPPORT_HP_PERIPH_PD_SLEEP_WAKEUP
     esp_sleep_gpio_wake_up_mode_t mode = active_low ? ESP_GPIO_WAKEUP_GPIO_LOW : ESP_GPIO_WAKEUP_GPIO_HIGH;
-    err = esp_sleep_enable_gpio_wakeup_on_hp_periph_powerdown(1ULL << wake_gpio, mode);
+    err = esp_sleep_enable_gpio_wakeup_on_hp_periph_powerdown(wake_gpio_mask, mode);
 #elif SOC_PM_SUPPORT_EXT0_WAKEUP
     err = esp_sleep_enable_ext0_wakeup(wake_gpio, active_low ? 0 : 1);
 #else
@@ -528,7 +793,8 @@ esp_err_t gpio_manager_enable_boot_button_wakeup(void)
 #endif
 
     if (err == ESP_OK) {
-        ESP_LOGI(TAG, "Configured deep-sleep wake on GPIO %d level=%d", (int)wake_gpio, wake_level);
+        ESP_LOGI(TAG, "Configured deep-sleep wake on %u button GPIOs level=%d",
+                 (unsigned)button_count, wake_level);
     }
 
     return err;
