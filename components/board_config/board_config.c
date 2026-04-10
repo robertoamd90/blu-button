@@ -61,7 +61,7 @@ int board_config_button_gpio(size_t index)
     return index < board_config_button_count() ? s_button_gpios[index] : -1;
 }
 
-bool board_config_boot_button_active_low(void)
+bool board_config_button_active_low(void)
 {
     return true;
 }

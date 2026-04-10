@@ -125,7 +125,7 @@ static esp_err_t get_button_gpio(size_t index, gpio_num_t *out_gpio)
 
 static esp_err_t configure_button_level_input_for(gpio_num_t button_gpio)
 {
-    s_button_active_low = board_config_boot_button_active_low();
+    s_button_active_low = board_config_button_active_low();
 
     if (s_button_level_gpio == button_gpio) {
         return ESP_OK;
@@ -197,7 +197,7 @@ static bool button_pressed_for(gpio_num_t button_gpio)
     return s_button_active_low ? (level == 0) : (level != 0);
 }
 
-bool gpio_manager_boot_button_pressed(void)
+bool gpio_manager_button_pressed(void)
 {
     gpio_num_t button_gpio;
 
@@ -745,10 +745,10 @@ esp_err_t gpio_manager_finish_wake_capture(const gpio_wake_capture_t *capture,
     return ESP_OK;
 }
 
-esp_err_t gpio_manager_enable_boot_button_wakeup(void)
+esp_err_t gpio_manager_enable_button_wakeup(void)
 {
     const size_t button_count = effective_button_count();
-    const bool active_low = board_config_boot_button_active_low();
+    const bool active_low = board_config_button_active_low();
     const int wake_level = active_low ? 0 : 1;
     uint64_t wake_gpio_mask = 0;
     gpio_num_t wake_gpio = GPIO_NUM_NC;
@@ -789,7 +789,7 @@ esp_err_t gpio_manager_enable_boot_button_wakeup(void)
 #elif SOC_PM_SUPPORT_EXT0_WAKEUP
     err = esp_sleep_enable_ext0_wakeup(wake_gpio, active_low ? 0 : 1);
 #else
-#error "No supported deep-sleep wake source available for boot button"
+#error "No supported deep-sleep wake source available for button GPIOs"
 #endif
 
     if (err == ESP_OK) {

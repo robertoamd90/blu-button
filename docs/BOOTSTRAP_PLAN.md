@@ -15,7 +15,7 @@ These pieces are worth carrying over from BluButtonBridge immediately:
 - `configs/sdkconfig.*`
   - practical starting point for dual-target ESP-IDF builds
 - `components/board_config/`
-  - keeps BOOT button and LED mappings out of shared logic
+  - keeps button GPIO and LED mappings out of shared logic
 - `site/`
   - reusable browser installer surface that does not affect battery-oriented runtime design
 - `.github/workflows/pages.yml`
@@ -54,7 +54,7 @@ The bootstrap phase has now been folded into a small working runtime:
 
 3. `components/gpio_manager/`
    - reuses the board wiring abstraction from `board_config`
-   - provides BOOT-button state, wake detection, gesture capture, and wake-source configuration helpers
+   - provides button state, wake detection, gesture capture, and wake-source configuration helpers
    - captures a short post-wake gesture session for single, double, triple, long, and 10-second maintenance hold
    - keeps the gesture classifier separate from downstream BLE and LED behavior
 

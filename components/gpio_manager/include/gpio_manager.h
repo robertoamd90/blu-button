@@ -18,10 +18,10 @@ typedef struct {
     size_t button_count;
 } gpio_wake_capture_t;
 
-bool gpio_manager_boot_button_pressed(void);
+bool gpio_manager_button_pressed(void);
 esp_err_t gpio_manager_begin_wake_capture(gpio_wake_capture_t *capture,
                                           uint32_t wakeup_causes);
 esp_err_t gpio_manager_finish_wake_capture(const gpio_wake_capture_t *capture,
                                            button_event_t *out_event,
                                            bool *out_have_event);
-esp_err_t gpio_manager_enable_boot_button_wakeup(void);
+esp_err_t gpio_manager_enable_button_wakeup(void);
