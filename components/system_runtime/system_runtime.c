@@ -49,7 +49,7 @@ static void enter_deep_sleep(void) __attribute__((noreturn));
 static void enter_deep_sleep(void)
 {
     ESP_ERROR_CHECK(esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL));
-    ESP_ERROR_CHECK(gpio_manager_enable_boot_button_wakeup());
+    ESP_ERROR_CHECK(gpio_manager_enable_button_wakeup());
     esp_deep_sleep_start();
 }
 

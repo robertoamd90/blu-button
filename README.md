@@ -136,7 +136,7 @@ The merged `full.bin` remains useful for manual recovery and low-level reprovisi
 In the current phase, the maintenance surface is intentionally simple:
 
 - the normal idle state is deep sleep
-- a BOOT press wakes the device, opens a short gesture-capture session for single, double, triple, long, and maintenance hold detection, and returns to deep sleep after the local action or BLE advertisement completes
+- a button press wakes the device, opens a short gesture-capture session for single, double, triple, long, and maintenance hold detection, and returns to deep sleep after the local action or BLE advertisement completes
 - BLE startup overlaps with the gesture session so the wake-to-advertise path stays bounded instead of serializing all startup cost after classification
 - on first boot, the device generates and stores an AES key if one is not already present
 - the firmware may print device identity and registration credentials on the serial log, but that is no longer the primary operator path for key retrieval
