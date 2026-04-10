@@ -24,13 +24,26 @@ static const char *NVS_KEY_COUNTER = "counter";
 #define BTHOME_DEVICE_INFO_ENCRYPTED_V2 0x41
 #define BTHOME_OBJ_PACKET_ID 0x00
 #define BTHOME_OBJ_BUTTON    0x3A
+#define BTHOME_BUTTON_EVENT_NONE 0x00
 
-#define BTHOME_PLAINTEXT_LEN 4
+#define BTHOME_BUTTON_OBJECT_LEN 2
+#define BTHOME_MAX_BUTTON_OBJECT_COUNT BLE_BUTTON_TX_MAX_BUTTONS
+#define BTHOME_PLAINTEXT_BASE_LEN 2
+#define BTHOME_MAX_PLAINTEXT_LEN (BTHOME_PLAINTEXT_BASE_LEN + \
+                                  (BTHOME_MAX_BUTTON_OBJECT_COUNT * BTHOME_BUTTON_OBJECT_LEN))
 #define BTHOME_COUNTER_LEN 4
 #define BTHOME_NONCE_LEN 13
 #define BTHOME_TAG_LEN 4
-#define BTHOME_CIPHERTEXT_AND_TAG_LEN (BTHOME_PLAINTEXT_LEN + BTHOME_TAG_LEN)
-#define BTHOME_SERVICE_DATA_LEN (2 + 1 + BTHOME_PLAINTEXT_LEN + BTHOME_COUNTER_LEN + BTHOME_TAG_LEN)
+#define BTHOME_MAX_CIPHERTEXT_AND_TAG_LEN (BTHOME_MAX_PLAINTEXT_LEN + BTHOME_TAG_LEN)
+#define BTHOME_MAX_SERVICE_DATA_LEN (2 + 1 + BTHOME_MAX_PLAINTEXT_LEN + BTHOME_COUNTER_LEN + BTHOME_TAG_LEN)
+#define BLE_ADV_MAX_PAYLOAD_LEN 31
+#define BLE_ADV_FIELD_OVERHEAD_LEN 2
+#define BLE_ADV_FLAGS_FIELD_TOTAL_LEN 3
+#define BLE_ADV_SERVICE_DATA_FIELD_TOTAL_LEN (BTHOME_MAX_SERVICE_DATA_LEN + BLE_ADV_FIELD_OVERHEAD_LEN)
+
+_Static_assert(BLE_ADV_FLAGS_FIELD_TOTAL_LEN + BLE_ADV_SERVICE_DATA_FIELD_TOTAL_LEN <=
+                   BLE_ADV_MAX_PAYLOAD_LEN,
+               "BTHome advertisement exceeds legacy ADV payload budget");
 
 #define ADV_DURATION_MS 200
 #define ADV_STOP_GRACE_MS 50
@@ -221,6 +234,46 @@ static esp_err_t button_event_to_event_code(button_event_t event, uint8_t *out_e
     }
 }
 
+static size_t plaintext_len_for_button_count(size_t button_count)
+{
+    return BTHOME_PLAINTEXT_BASE_LEN + (button_count * BTHOME_BUTTON_OBJECT_LEN);
+}
+
+static size_t service_data_len_for_plaintext_len(size_t plaintext_len)
+{
+    return 2 + 1 + plaintext_len + BTHOME_COUNTER_LEN + BTHOME_TAG_LEN;
+}
+
+static esp_err_t encode_button_objects(uint8_t *plaintext,
+                                       button_event_t event,
+                                       size_t active_button,
+                                       size_t total_buttons)
+{
+    size_t offset = BTHOME_PLAINTEXT_BASE_LEN;
+    uint8_t active_event_code;
+    esp_err_t err;
+
+    if (!plaintext ||
+        total_buttons == 0 ||
+        total_buttons > BTHOME_MAX_BUTTON_OBJECT_COUNT ||
+        active_button == 0 ||
+        active_button > total_buttons) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    err = button_event_to_event_code(event, &active_event_code);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    for (size_t button = 1; button <= total_buttons; button++) {
+        plaintext[offset++] = BTHOME_OBJ_BUTTON;
+        plaintext[offset++] = (button == active_button) ? active_event_code : BTHOME_BUTTON_EVENT_NONE;
+    }
+
+    return ESP_OK;
+}
+
 static void init_adv_fields(struct ble_hs_adv_fields *adv_fields,
                             uint8_t *service_data)
 {
@@ -391,16 +444,23 @@ static void host_task(void *arg)
     nimble_port_freertos_deinit();
 }
 
-static esp_err_t encrypt_payload(const uint8_t plaintext[BTHOME_PLAINTEXT_LEN],
+static esp_err_t encrypt_payload(const uint8_t *plaintext,
+                                 size_t plaintext_len,
                                  uint32_t counter,
-                                 uint8_t out_service_data[BTHOME_SERVICE_DATA_LEN],
+                                 uint8_t out_service_data[BTHOME_MAX_SERVICE_DATA_LEN],
                                  size_t *out_len)
 {
     uint8_t counter_le[BTHOME_COUNTER_LEN];
     uint8_t nonce[BTHOME_NONCE_LEN];
-    uint8_t ciphertext_and_tag[BTHOME_CIPHERTEXT_AND_TAG_LEN];
+    uint8_t ciphertext_and_tag[BTHOME_MAX_CIPHERTEXT_AND_TAG_LEN];
     size_t ct_len = 0;
     psa_status_t status;
+
+    if (!plaintext || !out_service_data || !out_len ||
+        plaintext_len < BTHOME_PLAINTEXT_BASE_LEN ||
+        plaintext_len > BTHOME_MAX_PLAINTEXT_LEN) {
+        return ESP_ERR_INVALID_ARG;
+    }
 
     memcpy(counter_le, &counter, sizeof(counter_le));
 
@@ -416,7 +476,7 @@ static esp_err_t encrypt_payload(const uint8_t plaintext[BTHOME_PLAINTEXT_LEN],
                               PSA_ALG_AEAD_WITH_SHORTENED_TAG(PSA_ALG_CCM, 4),
                               nonce, sizeof(nonce),
                               NULL, 0,
-                              plaintext, BTHOME_PLAINTEXT_LEN,
+                              plaintext, plaintext_len,
                               ciphertext_and_tag, sizeof(ciphertext_and_tag),
                               &ct_len);
     if (status != PSA_SUCCESS) {
@@ -427,12 +487,12 @@ static esp_err_t encrypt_payload(const uint8_t plaintext[BTHOME_PLAINTEXT_LEN],
     out_service_data[0] = BTHOME_UUID_LO;
     out_service_data[1] = BTHOME_UUID_HI;
     out_service_data[2] = BTHOME_DEVICE_INFO_ENCRYPTED_V2;
-    memcpy(&out_service_data[3], ciphertext_and_tag, BTHOME_PLAINTEXT_LEN);
-    memcpy(&out_service_data[3 + BTHOME_PLAINTEXT_LEN], counter_le, BTHOME_COUNTER_LEN);
-    memcpy(&out_service_data[3 + BTHOME_PLAINTEXT_LEN + BTHOME_COUNTER_LEN],
-           &ciphertext_and_tag[BTHOME_PLAINTEXT_LEN],
+    memcpy(&out_service_data[3], ciphertext_and_tag, plaintext_len);
+    memcpy(&out_service_data[3 + plaintext_len], counter_le, BTHOME_COUNTER_LEN);
+    memcpy(&out_service_data[3 + plaintext_len + BTHOME_COUNTER_LEN],
+           &ciphertext_and_tag[plaintext_len],
            BTHOME_TAG_LEN);
-    *out_len = BTHOME_SERVICE_DATA_LEN;
+    *out_len = service_data_len_for_plaintext_len(plaintext_len);
     return ESP_OK;
 }
 
@@ -481,22 +541,27 @@ esp_err_t ble_button_tx_init(const uint8_t key[16])
     return ESP_OK;
 }
 
-esp_err_t ble_button_tx_send_event(button_event_t event)
+esp_err_t ble_button_tx_send_event(button_event_t event,
+                                   size_t active_button,
+                                   size_t total_buttons)
 {
-    uint8_t plaintext[BTHOME_PLAINTEXT_LEN];
-    uint8_t service_data[BTHOME_SERVICE_DATA_LEN];
+    uint8_t plaintext[BTHOME_MAX_PLAINTEXT_LEN];
+    uint8_t service_data[BTHOME_MAX_SERVICE_DATA_LEN];
+    size_t plaintext_len;
     size_t service_data_len = 0;
     struct ble_gap_adv_params adv_params;
     struct ble_hs_adv_fields adv_fields;
-    uint8_t event_code;
     uint32_t next_counter = 0;
     esp_err_t err = ESP_OK;
     int rc;
 
-    err = button_event_to_event_code(event, &event_code);
-    if (err != ESP_OK) {
-        return err;
+    if (total_buttons == 0 ||
+        total_buttons > BTHOME_MAX_BUTTON_OBJECT_COUNT ||
+        active_button == 0 ||
+        active_button > total_buttons) {
+        return ESP_ERR_INVALID_ARG;
     }
+    plaintext_len = plaintext_len_for_button_count(total_buttons);
 
     if (!tx_runtime_ready()) {
         return ESP_ERR_INVALID_STATE;
@@ -525,10 +590,13 @@ esp_err_t ble_button_tx_send_event(button_event_t event)
         next_counter = s_counter + 1;
         plaintext[0] = BTHOME_OBJ_PACKET_ID;
         plaintext[1] = (uint8_t)(next_counter & 0xFF);
-        plaintext[2] = BTHOME_OBJ_BUTTON;
-        plaintext[3] = event_code;
+        err = encode_button_objects(plaintext, event, active_button, total_buttons);
+        if (err != ESP_OK) {
+            xSemaphoreGive(s_mutex);
+            return err;
+        }
 
-        err = encrypt_payload(plaintext, next_counter, service_data, &service_data_len);
+        err = encrypt_payload(plaintext, plaintext_len, next_counter, service_data, &service_data_len);
         if (err != ESP_OK) {
             xSemaphoreGive(s_mutex);
             return err;
@@ -555,7 +623,11 @@ esp_err_t ble_button_tx_send_event(button_event_t event)
 
         err = start_adv_operation(&adv_params);
         if (err == ESP_OK) {
-            ESP_LOGI(TAG, "sent button event=%u counter=%" PRIu32, (unsigned)event, s_counter);
+            ESP_LOGI(TAG, "sent button event=%u active_button=%u total_buttons=%u counter=%" PRIu32,
+                     (unsigned)event,
+                     (unsigned)active_button,
+                     (unsigned)total_buttons,
+                     s_counter);
             xSemaphoreGive(s_mutex);
             return ESP_OK;
         }

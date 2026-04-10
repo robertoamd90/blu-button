@@ -37,11 +37,11 @@ static void print_registration_credentials(void)
 
     device_identity_format_key_hex(key_hex);
 
-    ESP_LOGI(TAG, "==== BluButton Registration Credentials ====");
-    ESP_LOGI(TAG, "MAC: %02X:%02X:%02X:%02X:%02X:%02X",
+    ESP_LOGW(TAG, "==== BluButton Registration Credentials ====");
+    ESP_LOGW(TAG, "MAC: %02X:%02X:%02X:%02X:%02X:%02X",
              mac[5], mac[4], mac[3], mac[2], mac[1], mac[0]);
-    ESP_LOGI(TAG, "AES Key: %s", key_hex);
-    ESP_LOGI(TAG, "===========================================");
+    ESP_LOGW(TAG, "AES Key: %s", key_hex);
+    ESP_LOGW(TAG, "===========================================");
 }
 
 static void enter_deep_sleep(void) __attribute__((noreturn));
@@ -94,8 +94,9 @@ void system_runtime_init(void)
             case BUTTON_EVENT_DOUBLE_PRESS:
             case BUTTON_EVENT_TRIPLE_PRESS:
             case BUTTON_EVENT_LONG_PRESS:
+            {
                 if (ble_ready_for_event) {
-                    err = ble_button_tx_send_event(event);
+                    err = ble_button_tx_send_event(event, 1, 1);
                     if (err != ESP_OK) {
                         ESP_LOGW(TAG, "BLE send failed for event %d: %s", (int)event, esp_err_to_name(err));
                     } else {
@@ -115,6 +116,7 @@ void system_runtime_init(void)
                     }
                 }
                 break;
+            }
             case BUTTON_EVENT_MAINTENANCE_HOLD:
                 print_registration_credentials();
                 vTaskDelay(pdMS_TO_TICKS(250));
