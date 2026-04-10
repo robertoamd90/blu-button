@@ -74,6 +74,13 @@ The bootstrap phase has now been folded into a small working runtime:
    - degrades to warning-and-sleep if BLE startup or event delivery fails during a wake session
    - returns to deep sleep after each wake-driven interaction
 
+Operator maintenance now also includes:
+
+- `scripts/read-device-aes-key.sh`
+  - reads the persisted `identity:aes_key` value from the device `nvs` partition through the ESP-IDF bootloader tooling
+  - avoids depending on runtime serial logs after deep-sleep wake
+  - is the preferred AES-key extraction path on USB-native boards such as the ESP32-C3
+
 ## Remaining v0 Validation
 
 - flash and test both boards on hardware

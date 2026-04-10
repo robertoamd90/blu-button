@@ -22,6 +22,7 @@ That implies at least:
 - A full erase may exist as an explicit user-chosen recovery action, but it must never be the silent default browser path.
 - A first boot with empty NVS may generate and persist a new AES key exactly once.
 - The maintenance path may reprint credentials, but it must not silently rotate keys or counters.
+- Maintenance-time AES-key extraction may read the persisted `identity:aes_key` value from NVS, but it must not modify the stored key or counter state.
 
 ## Identity model
 
@@ -44,5 +45,6 @@ The following behavior is intentionally local to BluButton and must not leak int
 - LED blink feedback
 - 10-second credential reprint maintenance hold
 - serial-only maintenance output
+- script-based AES-key extraction from NVS over the bootloader serial path
 
 Maintenance behavior such as a 10-second hold to reprint credentials is local-only and must not interfere with the normal user-event contract.

@@ -139,7 +139,7 @@ In the current phase, the maintenance surface is intentionally simple:
 - a BOOT press wakes the device, opens a short gesture-capture session for single, double, triple, long, and maintenance hold detection, and returns to deep sleep after the local action or BLE advertisement completes
 - BLE startup overlaps with the gesture session so the wake-to-advertise path stays bounded instead of serializing all startup cost after classification
 - on first boot, the device generates and stores an AES key if one is not already present
-- the serial log is expected to show the device identity and registration credentials
+- the firmware may print device identity and registration credentials on the serial log, but that is no longer the primary operator path for key retrieval
 - a wake-triggering hold is credited for the boot time already spent before classification, so long and maintenance holds are not shortened by the deep-sleep resume path
 - a 10-second hold remains reserved for local maintenance behavior such as reprinting credentials
 
@@ -149,6 +149,14 @@ After flashing, open a serial monitor at `115200` baud. From this repo the simpl
 source ~/esp/esp-idf/export.sh
 ESPPORT=/dev/cu.usbmodem3101 scripts/idf-target.sh esp32c3-supermini monitor
 ```
+
+For reliable AES-key extraction, prefer the dedicated script instead of depending on runtime log timing or USB serial continuity across deep sleep:
+
+```bash
+bash scripts/read-device-aes-key.sh --port /dev/cu.usbserial-0001
+```
+
+That script reads the `nvs` partition through the ROM bootloader path and prints the stored `identity:aes_key` value as lowercase hex. This is the recommended maintenance path on boards such as the ESP32-C3 where the native USB serial link may drop during deep sleep.
 
 ## What Was Ported From BluButtonBridge
 
