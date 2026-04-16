@@ -1,6 +1,6 @@
 # BluButton
 
-ESP-IDF firmware for an open-source BLE button transmitter designed to be indistinguishable from a Shelly BLU Button from the point of view of BluButtonBridge.
+ESP-IDF v6.0 firmware for an open-source BLE button transmitter designed to be indistinguishable from a Shelly BLU Button from the point of view of BluButtonBridge.
 
 ## Read This First
 
@@ -39,7 +39,7 @@ The first goal is to prove the compatibility path:
 ## Wi-Fi Note
 
 BluButton does not initialize or use Wi-Fi in the v0 runtime.
-On ESP32-class targets, ESP-IDF 6.1 still forces `CONFIG_ESP_WIFI_ENABLED=y`
+On ESP32-class targets, ESP-IDF still forces `CONFIG_ESP_WIFI_ENABLED=y`
 for `SOC_WIFI_SUPPORTED` chips in Kconfig, so some Wi-Fi and LWIP components
 remain in the build graph even though the firmware does not provide any Wi-Fi
 feature or control surface.
@@ -57,16 +57,25 @@ Terms used in this repo:
 
 ## Prerequisites
 
-- ESP-IDF 6.1 or compatible environment export at `~/esp/esp-idf/export.sh`
+- ESP-IDF v6.0 environment export at `~/esp/esp-idf-v6.0/export.sh`
 - `jq`
 - `esptool`
 - a USB data cable
 - `ESPPORT=/dev/...` when flashing or opening the monitor
 
+To install the recommended ESP-IDF layout:
+
+```bash
+mkdir -p ~/esp && cd ~/esp
+git clone --recursive --branch v6.0 https://github.com/espressif/esp-idf.git esp-idf-v6.0
+cd esp-idf-v6.0
+PYTHON=$(which python3.12) ./install.sh esp32 esp32c3
+```
+
 Use the helper script so each target keeps its own `sdkconfig` and build directory:
 
 ```bash
-source ~/esp/esp-idf/export.sh
+source ~/esp/esp-idf-v6.0/export.sh
 scripts/idf-target.sh esp32 build
 scripts/idf-target.sh esp32c3 build
 ```
@@ -81,7 +90,7 @@ scripts/idf-target.sh esp32c3-supermini build
 For flashing and serial monitoring, provide the port explicitly:
 
 ```bash
-source ~/esp/esp-idf/export.sh
+source ~/esp/esp-idf-v6.0/export.sh
 ESPPORT=/dev/cu.usbmodem3101 scripts/idf-target.sh esp32c3-supermini flash
 ESPPORT=/dev/cu.usbmodem3101 scripts/idf-target.sh esp32c3-supermini monitor
 ```
@@ -114,7 +123,7 @@ Each release should include the board-specific full images for manual recovery a
 For local release packaging from existing build output:
 
 ```bash
-source ~/esp/esp-idf/export.sh
+source ~/esp/esp-idf-v6.0/export.sh
 scripts/package-release.sh all
 ```
 
@@ -146,7 +155,7 @@ In the current phase, the maintenance surface is intentionally simple:
 After flashing, open a serial monitor at `115200` baud. From this repo the simplest path is:
 
 ```bash
-source ~/esp/esp-idf/export.sh
+source ~/esp/esp-idf-v6.0/export.sh
 ESPPORT=/dev/cu.usbmodem3101 scripts/idf-target.sh esp32c3-supermini monitor
 ```
 

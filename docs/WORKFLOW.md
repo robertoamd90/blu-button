@@ -13,8 +13,8 @@ For normal feature or fix work:
 
 For non-trivial firmware changes, the default validation target is both currently supported board profiles:
 
-- `source ~/esp/esp-idf/export.sh && scripts/idf-target.sh esp32 build`
-- `source ~/esp/esp-idf/export.sh && scripts/idf-target.sh esp32c3 build`
+- `source ~/esp/esp-idf-v6.0/export.sh && scripts/idf-target.sh esp32 build`
+- `source ~/esp/esp-idf-v6.0/export.sh && scripts/idf-target.sh esp32c3 build`
 
 If browser installer files change, also validate:
 
@@ -37,7 +37,7 @@ Default local assumptions for this repo:
 
 - ESP-IDF is installed locally
 - the IDF environment can be loaded with:
-  - `source ~/esp/esp-idf/export.sh`
+  - `source ~/esp/esp-idf-v6.0/export.sh`
 - hardware-level behavioral validation is normally performed by the user after flash
 - this repo currently supports:
   - `esp32-devkit-v1`

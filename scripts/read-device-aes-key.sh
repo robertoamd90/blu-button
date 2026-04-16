@@ -17,7 +17,7 @@ Options:
   -h, --help                 Show this help
 
 Notes:
-  - This uses the ESP-IDF Python environment and tools from ~/esp/esp-idf by default.
+  - This uses the ESP-IDF Python environment and tools from $IDF_PATH or ~/esp/esp-idf-v6.0 by default.
   - It expects the AES key at namespace "identity", key "aes_key".
   - It assumes NVS is not encrypted, which matches the current project configs.
 EOF
@@ -78,7 +78,12 @@ if [[ -n "$nvs_file" && ! -f "$nvs_file" ]]; then
     die "NVS file not found: $nvs_file"
 fi
 
-idf_path="${IDF_PATH:-$HOME/esp/esp-idf}"
+idf_default_path="$HOME/esp/esp-idf-v6.0"
+if [[ -z "${IDF_PATH:-}" && ! -f "$idf_default_path/export.sh" && -f "$HOME/esp/esp-idf/export.sh" ]]; then
+    idf_default_path="$HOME/esp/esp-idf"
+fi
+
+idf_path="${IDF_PATH:-$idf_default_path}"
 idf_export="$idf_path/export.sh"
 parttool_py="$idf_path/components/partition_table/parttool.py"
 nvs_tool_py="$idf_path/components/nvs_flash/nvs_partition_tool/nvs_tool.py"
