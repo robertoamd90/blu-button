@@ -75,7 +75,7 @@ If documents overlap:
 
 ## Validation
 
-For non-trivial work, prefer target-aware builds for both currently supported board profiles before calling work complete.
+For non-trivial work, prefer target-aware builds for all currently supported board profiles before calling work complete.
 
 When browser installer files change, also validate:
 

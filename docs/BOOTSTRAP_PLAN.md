@@ -12,8 +12,8 @@ These pieces are worth carrying over from BluButtonBridge immediately:
   - lightweight board resolution helper around the catalog
 - `scripts/idf-target.sh`
   - stable per-board build/flash workflow
-- `configs/sdkconfig.*`
-  - practical starting point for dual-target ESP-IDF builds
+- `configs/sdkconfig.*` plus `configs/boards/*.defaults`
+  - target-level ESP-IDF bases plus small board-specific overlays
 - `components/board_config/`
   - keeps button GPIO and LED mappings out of shared logic
 - `site/`
@@ -83,7 +83,7 @@ Operator maintenance now also includes:
 
 ## Remaining v0 Validation
 
-- flash and test both boards on hardware
+- flash and test all supported boards on hardware
 - verify that `bbb` accepts the advertisements without bridge-side changes
 - compare event timing against a real Shelly BLU Button and tune thresholds if needed
 - measure wake-to-advertise timing and deep-sleep current on real hardware

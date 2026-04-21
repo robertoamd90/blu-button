@@ -73,6 +73,11 @@ For the currently supported boards that means:
 - `BluButton-esp32c3-supermini-ota-data.bin`
 - `BluButton-esp32c3-supermini.bin`
 - `BluButton-esp32c3-supermini-full.bin`
+- `BluButton-xiao-esp32-c3-bootloader.bin`
+- `BluButton-xiao-esp32-c3-partition-table.bin`
+- `BluButton-xiao-esp32-c3-ota-data.bin`
+- `BluButton-xiao-esp32-c3.bin`
+- `BluButton-xiao-esp32-c3-full.bin`
 
 Meaning of the assets:
 

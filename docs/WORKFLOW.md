@@ -11,10 +11,11 @@ For normal feature or fix work:
 3. let the user handle on-device behavioral checks unless explicitly asked to do more
 4. only after validation and any user-requested review proceed with commit / PR / merge work
 
-For non-trivial firmware changes, the default validation target is both currently supported board profiles:
+For non-trivial firmware changes, the default validation target is all currently supported board profiles:
 
 - `source ~/esp/esp-idf-v6.0/export.sh && scripts/idf-target.sh esp32 build`
-- `source ~/esp/esp-idf-v6.0/export.sh && scripts/idf-target.sh esp32c3 build`
+- `source ~/esp/esp-idf-v6.0/export.sh && scripts/idf-target.sh esp32c3-supermini build`
+- `source ~/esp/esp-idf-v6.0/export.sh && scripts/idf-target.sh xiao-esp32-c3 build`
 
 If browser installer files change, also validate:
 
@@ -42,6 +43,7 @@ Default local assumptions for this repo:
 - this repo currently supports:
   - `esp32-devkit-v1`
   - `esp32c3-supermini`
+  - `xiao-esp32-c3`
 
 If one of these assumptions is false, say so clearly in the handoff instead of implying full validation happened.
 

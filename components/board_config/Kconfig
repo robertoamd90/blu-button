@@ -15,6 +15,10 @@ choice BB_BOARD_PROFILE
     config BB_BOARD_ESP32C3_SUPERMINI
         bool "ESP32-C3 SuperMini (common pinout)"
         depends on IDF_TARGET_ESP32C3
+
+    config BB_BOARD_XIAO_ESP32_C3
+        bool "Seeed XIAO ESP32-C3"
+        depends on IDF_TARGET_ESP32C3
 endchoice
 
 endmenu

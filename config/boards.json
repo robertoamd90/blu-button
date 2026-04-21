@@ -7,7 +7,10 @@
       "target": "esp32",
       "chip": "esp32",
       "chip_family": "ESP32",
-      "sdkconfig": "configs/sdkconfig.esp32",
+      "sdkconfig_defaults": [
+        "configs/sdkconfig.esp32",
+        "configs/boards/esp32-devkit-v1.defaults"
+      ],
       "build_dir": "build/esp32-devkit-v1",
       "display_name": "ESP32 DevKit V1",
       "summary": "ESP32 DevKit V1 with ESP-WROOM-32 and 4 MB flash.",
@@ -44,7 +47,10 @@
       "target": "esp32c3",
       "chip": "esp32c3",
       "chip_family": "ESP32-C3",
-      "sdkconfig": "configs/sdkconfig.esp32c3",
+      "sdkconfig_defaults": [
+        "configs/sdkconfig.esp32c3",
+        "configs/boards/esp32c3-supermini.defaults"
+      ],
       "build_dir": "build/esp32c3-supermini",
       "display_name": "ESP32-C3 SuperMini",
       "summary": "ESP32-C3 SuperMini with 4 MB flash and USB-Serial/JTAG.",
@@ -74,6 +80,46 @@
         }
       ],
       "full_asset_name": "BluButton-esp32c3-supermini-full.bin"
+    },
+    {
+      "id": "xiao-esp32-c3",
+      "aliases": ["xiao-c3", "xiao-esp32-c3", "seeed-xiao-esp32-c3"],
+      "target": "esp32c3",
+      "chip": "esp32c3",
+      "chip_family": "ESP32-C3",
+      "sdkconfig_defaults": [
+        "configs/sdkconfig.esp32c3",
+        "configs/boards/xiao-esp32-c3.defaults"
+      ],
+      "build_dir": "build/xiao-esp32-c3",
+      "display_name": "Seeed XIAO ESP32-C3",
+      "summary": "Seeed XIAO ESP32-C3 with 4 MB flash, native USB-C, and onboard Li-ion charging.",
+      "hint": "Use this profile for the XIAO ESP32-C3 pinout. The bare board has no app-controlled user LED, so LED feedback is disabled unless external hardware provides one.",
+      "pills": ["ESP32-C3", "4 MB flash", "USB-C", "Li-ion charge"],
+      "kconfig_symbol": "CONFIG_BB_BOARD_XIAO_ESP32_C3",
+      "install_parts": [
+        {
+          "kind": "bootloader",
+          "asset_name": "BluButton-xiao-esp32-c3-bootloader.bin",
+          "offset": 0
+        },
+        {
+          "kind": "partition-table",
+          "asset_name": "BluButton-xiao-esp32-c3-partition-table.bin",
+          "offset": 32768
+        },
+        {
+          "kind": "ota-data",
+          "asset_name": "BluButton-xiao-esp32-c3-ota-data.bin",
+          "offset": 61440
+        },
+        {
+          "kind": "app",
+          "asset_name": "BluButton-xiao-esp32-c3.bin",
+          "offset": 131072
+        }
+      ],
+      "full_asset_name": "BluButton-xiao-esp32-c3-full.bin"
     }
   ]
 }

@@ -3152,7 +3152,6 @@ CONFIG_VFS_INITIALIZE_DEV_NULL=y
 #
 # BluButton
 #
-CONFIG_BB_BOARD_ESP32C3_SUPERMINI=y
 # end of BluButton
 # end of Component config
 

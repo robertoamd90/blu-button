@@ -2934,7 +2934,6 @@ CONFIG_VFS_INITIALIZE_DEV_NULL=y
 # BluButton
 #
 # default:
-CONFIG_BB_BOARD_ESP32_DEVKIT_V1=y
 # end of BluButton
 # end of Component config
 

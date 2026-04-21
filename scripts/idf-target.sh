@@ -34,8 +34,9 @@ Actions:
 Examples:
   scripts/idf-target.sh esp32 build
   scripts/idf-target.sh esp32 flash
-  scripts/idf-target.sh esp32c3 build
-  ESPPORT=/dev/cu.usbmodem123 scripts/idf-target.sh esp32c3 flash
+  scripts/idf-target.sh esp32c3-supermini build
+  scripts/idf-target.sh xiao-esp32-c3 build
+  ESPPORT=/dev/cu.usbmodem123 scripts/idf-target.sh xiao-esp32-c3 flash
 EOF
 }
 
@@ -55,12 +56,39 @@ if ! board_json="$(boards_resolve_json "$board")"; then
 fi
 
 idf_target="$(jq -r '.target' <<<"$board_json")"
-sdkconfig_path="$root_dir/$(jq -r '.sdkconfig' <<<"$board_json")"
 build_dir="$root_dir/$(jq -r '.build_dir' <<<"$board_json")"
+sdkconfig_path="$build_dir/sdkconfig"
+sdkconfig_defaults_arg=""
+
+while IFS= read -r sdkconfig_default; do
+    [[ -n "$sdkconfig_default" ]] || continue
+
+    if [[ "$sdkconfig_default" = /* ]]; then
+        sdkconfig_default_path="$sdkconfig_default"
+    else
+        sdkconfig_default_path="$root_dir/$sdkconfig_default"
+    fi
+
+    if [[ ! -f "$sdkconfig_default_path" ]]; then
+        echo "Missing sdkconfig defaults file: $sdkconfig_default_path" >&2
+        exit 1
+    fi
+
+    if [[ -n "$sdkconfig_defaults_arg" ]]; then
+        sdkconfig_defaults_arg+=";"
+    fi
+    sdkconfig_defaults_arg+="$sdkconfig_default_path"
+done < <(jq -r '.sdkconfig_defaults[]' <<<"$board_json")
+
+if [[ -z "$sdkconfig_defaults_arg" ]]; then
+    echo "Board catalog entry must define sdkconfig_defaults[]: $board" >&2
+    exit 1
+fi
 
 idf_args=(
     -B "$build_dir"
     "-DSDKCONFIG=$sdkconfig_path"
+    "-DSDKCONFIG_DEFAULTS=$sdkconfig_defaults_arg"
     "-DIDF_TARGET=$idf_target"
 )
 

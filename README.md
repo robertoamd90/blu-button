@@ -48,12 +48,16 @@ feature or control surface.
 
 - ESP32 DevKit V1
 - ESP32-C3 SuperMini
+- Seeed XIAO ESP32-C3
 
 Terms used in this repo:
 
-- `board id`: canonical profile id from `config/boards.json`, for example `esp32c3-supermini`
-- `board alias`: short token accepted by helper scripts, for example `esp32c3`
+- `board id`: canonical profile id from `config/boards.json`, for example `xiao-esp32-c3`
+- `board alias`: short token accepted by helper scripts, for example `xiao-c3`
 - `target`: the ESP-IDF chip target such as `esp32` or `esp32c3`
+
+For backward compatibility, the generic `esp32c3` alias still resolves to `esp32c3-supermini`.
+Use `xiao-esp32-c3` or `xiao-c3` explicitly for the XIAO profile.
 
 ## Prerequisites
 
@@ -72,12 +76,13 @@ cd esp-idf-v6.0
 PYTHON=$(which python3.12) ./install.sh esp32 esp32c3
 ```
 
-Use the helper script so each target keeps its own `sdkconfig` and build directory:
+Use the helper script so each board keeps its own generated `sdkconfig` in its build directory while the repo stores target defaults plus board overlays in `configs/`:
 
 ```bash
 source ~/esp/esp-idf-v6.0/export.sh
 scripts/idf-target.sh esp32 build
-scripts/idf-target.sh esp32c3 build
+scripts/idf-target.sh esp32c3-supermini build
+scripts/idf-target.sh xiao-esp32-c3 build
 ```
 
 You can also use the board aliases:
@@ -85,6 +90,7 @@ You can also use the board aliases:
 ```bash
 scripts/idf-target.sh esp32-devkit-v1 build
 scripts/idf-target.sh esp32c3-supermini build
+scripts/idf-target.sh xiao-c3 build
 ```
 
 For flashing and serial monitoring, provide the port explicitly:
@@ -93,6 +99,8 @@ For flashing and serial monitoring, provide the port explicitly:
 source ~/esp/esp-idf-v6.0/export.sh
 ESPPORT=/dev/cu.usbmodem3101 scripts/idf-target.sh esp32c3-supermini flash
 ESPPORT=/dev/cu.usbmodem3101 scripts/idf-target.sh esp32c3-supermini monitor
+ESPPORT=/dev/cu.usbmodem3101 scripts/idf-target.sh xiao-esp32-c3 flash
+ESPPORT=/dev/cu.usbmodem3101 scripts/idf-target.sh xiao-esp32-c3 monitor
 ```
 
 ## Browser installer
@@ -119,6 +127,7 @@ Each release should include the board-specific full images for manual recovery a
 
 - `BluButton-esp32-devkit-v1-full.bin`
 - `BluButton-esp32c3-supermini-full.bin`
+- `BluButton-xiao-esp32-c3-full.bin`
 
 For local release packaging from existing build output:
 
@@ -131,6 +140,7 @@ That script also produces the board-specific app images:
 
 - `BluButton-esp32-devkit-v1.bin`
 - `BluButton-esp32c3-supermini.bin`
+- `BluButton-xiao-esp32-c3.bin`
 
 The packaging step also emits the split artifacts used by the browser installer:
 
@@ -156,7 +166,7 @@ After flashing, open a serial monitor at `115200` baud. From this repo the simpl
 
 ```bash
 source ~/esp/esp-idf-v6.0/export.sh
-ESPPORT=/dev/cu.usbmodem3101 scripts/idf-target.sh esp32c3-supermini monitor
+ESPPORT=/dev/cu.usbmodem3101 scripts/idf-target.sh xiao-esp32-c3 monitor
 ```
 
 For reliable AES-key extraction, prefer the dedicated script instead of depending on runtime log timing or USB serial continuity across deep sleep:
@@ -167,11 +177,13 @@ bash scripts/read-device-aes-key.sh --port /dev/cu.usbserial-0001
 
 That script reads the `nvs` partition through the ROM bootloader path and prints the stored `identity:aes_key` value as lowercase hex. This is the recommended maintenance path on boards such as the ESP32-C3 where the native USB serial link may drop during deep sleep.
 
+The bare XIAO ESP32-C3 does not expose a firmware-controlled user LED, so local LED feedback patterns are a no-op on that board profile unless a later hardware-specific profile adds an external LED.
+
 ## What Was Ported From BluButtonBridge
 
 - board catalog in `config/boards.json`
 - target helper scripts in `scripts/`
-- per-target `sdkconfig` profiles in `configs/`
+- per-target `sdkconfig` bases plus board overlays in `configs/`
 - board profile abstraction in `components/board_config/`
 - version derivation from `git describe`
 - GitHub Pages browser installer in `site/`

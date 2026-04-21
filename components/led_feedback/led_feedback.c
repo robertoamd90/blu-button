@@ -15,6 +15,7 @@ typedef struct {
 } led_pattern_t;
 
 static bool s_initialized = false;
+static bool s_led_available = false;
 
 #define LED_PATTERN_START_MS       60
 #define LED_PATTERN_STEP_MS       120
@@ -28,6 +29,11 @@ static int led_level_for(bool on)
 static void led_apply_level(bool on)
 {
     gpio_set_level((gpio_num_t)board_config_system_led_gpio(), led_level_for(on));
+}
+
+static bool led_is_available(void)
+{
+    return board_config_system_led_gpio() >= 0;
 }
 
 static void led_delay_ms(uint32_t delay_ms)
@@ -107,6 +113,12 @@ esp_err_t led_feedback_init(void)
         return ESP_OK;
     }
 
+    if (!led_is_available()) {
+        s_initialized = true;
+        s_led_available = false;
+        return ESP_OK;
+    }
+
     gpio_config_t led_cfg = {
         .pin_bit_mask = 1ULL << board_config_system_led_gpio(),
         .mode = GPIO_MODE_OUTPUT,
@@ -119,6 +131,7 @@ esp_err_t led_feedback_init(void)
         return err;
     }
     led_apply_level(false);
+    s_led_available = true;
     s_initialized = true;
     return ESP_OK;
 }
@@ -129,6 +142,10 @@ esp_err_t led_feedback_run_button_event_pattern_blocking(button_event_t event)
 
     if (!s_initialized) {
         return ESP_ERR_INVALID_STATE;
+    }
+
+    if (!s_led_available) {
+        return ESP_OK;
     }
 
     if (!led_pattern_for_event(event, &pattern)) {

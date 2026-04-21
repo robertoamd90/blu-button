@@ -47,6 +47,28 @@ bool board_config_system_led_active_low(void)
     return true;
 }
 
+#elif CONFIG_BB_BOARD_XIAO_ESP32_C3
+
+/*
+ * XIAO ESP32-C3 exposes the wake-capable RTC GPIOs on D0..D3:
+ *   D1/GPIO3, D2/GPIO4, D3/GPIO5, D0/GPIO2
+ * Keep GPIO2 last because it is a strapping pin.
+ *
+ * The bare XIAO board does not expose an application-controlled user LED.
+ * The visible onboard LED is the charger indicator, not a firmware GPIO.
+ */
+static const int s_button_gpios[] = {3,4,5,2};
+
+int board_config_system_led_gpio(void)
+{
+    return -1;
+}
+
+bool board_config_system_led_active_low(void)
+{
+    return false;
+}
+
 #else
 #error "Unsupported BluButton board profile"
 #endif
