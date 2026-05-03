@@ -7,6 +7,7 @@
 #include "esp_sleep.h"
 #include "nvs_flash.h"
 #include "ble_button_tx.h"
+#include "battery_telemetry.h"
 #include "device_identity.h"
 #include "gpio_manager.h"
 #include "led_feedback.h"
@@ -59,6 +60,8 @@ void system_runtime_init(void)
     button_event_t event = BUTTON_EVENT_SINGLE_PRESS;
     bool have_event = false;
     bool ble_event_sent = false;
+    battery_telemetry_sample_t battery_sample = {0};
+    const uint8_t *battery_percent = NULL;
     const uint32_t wakeup_causes = esp_sleep_get_wakeup_causes();
     gpio_wake_capture_t wake_capture = {0};
     bool ble_ready_for_event = false;
@@ -96,9 +99,19 @@ void system_runtime_init(void)
             case BUTTON_EVENT_LONG_PRESS:
             {
                 if (ble_ready_for_event) {
+                    err = battery_telemetry_sample(&battery_sample);
+                    if (err != ESP_OK) {
+                        ESP_LOGW(TAG, "battery sample failed: %s", esp_err_to_name(err));
+                    } else if (battery_sample.available) {
+                        battery_percent = &battery_sample.percent;
+                    }
+                }
+
+                if (ble_ready_for_event) {
                     err = ble_button_tx_send_event(event,
                                                    wake_capture.active_button,
-                                                   wake_capture.button_count);
+                                                   wake_capture.button_count,
+                                                   battery_percent);
                     if (err != ESP_OK) {
                         ESP_LOGW(TAG, "BLE send failed for event %d: %s", (int)event, esp_err_to_name(err));
                     } else {

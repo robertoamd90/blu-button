@@ -23,13 +23,16 @@ static const char *NVS_KEY_COUNTER = "counter";
 #define BTHOME_UUID_HI 0xFC
 #define BTHOME_DEVICE_INFO_ENCRYPTED_V2 0x41
 #define BTHOME_OBJ_PACKET_ID 0x00
+#define BTHOME_OBJ_BATTERY   0x01
 #define BTHOME_OBJ_BUTTON    0x3A
 #define BTHOME_BUTTON_EVENT_NONE 0x00
 
+#define BTHOME_BATTERY_OBJECT_LEN 2
 #define BTHOME_BUTTON_OBJECT_LEN 2
 #define BTHOME_MAX_BUTTON_OBJECT_COUNT BLE_BUTTON_TX_MAX_BUTTONS
 #define BTHOME_PLAINTEXT_BASE_LEN 2
 #define BTHOME_MAX_PLAINTEXT_LEN (BTHOME_PLAINTEXT_BASE_LEN + \
+                                  BTHOME_BATTERY_OBJECT_LEN + \
                                   (BTHOME_MAX_BUTTON_OBJECT_COUNT * BTHOME_BUTTON_OBJECT_LEN))
 #define BTHOME_COUNTER_LEN 4
 #define BTHOME_NONCE_LEN 13
@@ -39,11 +42,6 @@ static const char *NVS_KEY_COUNTER = "counter";
 #define BLE_ADV_MAX_PAYLOAD_LEN 31
 #define BLE_ADV_FIELD_OVERHEAD_LEN 2
 #define BLE_ADV_FLAGS_FIELD_TOTAL_LEN 3
-#define BLE_ADV_SERVICE_DATA_FIELD_TOTAL_LEN (BTHOME_MAX_SERVICE_DATA_LEN + BLE_ADV_FIELD_OVERHEAD_LEN)
-
-_Static_assert(BLE_ADV_FLAGS_FIELD_TOTAL_LEN + BLE_ADV_SERVICE_DATA_FIELD_TOTAL_LEN <=
-                   BLE_ADV_MAX_PAYLOAD_LEN,
-               "BTHome advertisement exceeds legacy ADV payload budget");
 
 #define ADV_DURATION_MS 200
 #define ADV_STOP_GRACE_MS 50
@@ -234,9 +232,11 @@ static esp_err_t button_event_to_event_code(button_event_t event, uint8_t *out_e
     }
 }
 
-static size_t plaintext_len_for_button_count(size_t button_count)
+static size_t plaintext_len_for_payload(size_t button_count, bool include_battery)
 {
-    return BTHOME_PLAINTEXT_BASE_LEN + (button_count * BTHOME_BUTTON_OBJECT_LEN);
+    return BTHOME_PLAINTEXT_BASE_LEN +
+           (include_battery ? BTHOME_BATTERY_OBJECT_LEN : 0) +
+           (button_count * BTHOME_BUTTON_OBJECT_LEN);
 }
 
 static size_t service_data_len_for_plaintext_len(size_t plaintext_len)
@@ -244,16 +244,45 @@ static size_t service_data_len_for_plaintext_len(size_t plaintext_len)
     return 2 + 1 + plaintext_len + BTHOME_COUNTER_LEN + BTHOME_TAG_LEN;
 }
 
+static size_t adv_payload_len_for_service_data_len(size_t service_data_len)
+{
+    return BLE_ADV_FLAGS_FIELD_TOTAL_LEN + BLE_ADV_FIELD_OVERHEAD_LEN + service_data_len;
+}
+
+static esp_err_t append_battery_object(uint8_t *plaintext,
+                                       size_t plaintext_len,
+                                       size_t *offset,
+                                       const uint8_t *battery_percent)
+{
+    if (!plaintext || !offset) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    if (!battery_percent) {
+        return ESP_OK;
+    }
+
+    if ((*offset + BTHOME_BATTERY_OBJECT_LEN) > plaintext_len) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+
+    plaintext[(*offset)++] = BTHOME_OBJ_BATTERY;
+    plaintext[(*offset)++] = *battery_percent;
+    return ESP_OK;
+}
+
 static esp_err_t encode_button_objects(uint8_t *plaintext,
+                                       size_t plaintext_len,
+                                       size_t *offset,
                                        button_event_t event,
                                        size_t active_button,
                                        size_t total_buttons)
 {
-    size_t offset = BTHOME_PLAINTEXT_BASE_LEN;
     uint8_t active_event_code;
     esp_err_t err;
 
     if (!plaintext ||
+        !offset ||
         total_buttons == 0 ||
         total_buttons > BTHOME_MAX_BUTTON_OBJECT_COUNT ||
         active_button == 0 ||
@@ -267,8 +296,11 @@ static esp_err_t encode_button_objects(uint8_t *plaintext,
     }
 
     for (size_t button = 1; button <= total_buttons; button++) {
-        plaintext[offset++] = BTHOME_OBJ_BUTTON;
-        plaintext[offset++] = (button == active_button) ? active_event_code : BTHOME_BUTTON_EVENT_NONE;
+        if ((*offset + BTHOME_BUTTON_OBJECT_LEN) > plaintext_len) {
+            return ESP_ERR_INVALID_SIZE;
+        }
+        plaintext[(*offset)++] = BTHOME_OBJ_BUTTON;
+        plaintext[(*offset)++] = (button == active_button) ? active_event_code : BTHOME_BUTTON_EVENT_NONE;
     }
 
     return ESP_OK;
@@ -543,10 +575,12 @@ esp_err_t ble_button_tx_init(const uint8_t key[16])
 
 esp_err_t ble_button_tx_send_event(button_event_t event,
                                    size_t active_button,
-                                   size_t total_buttons)
+                                   size_t total_buttons,
+                                   const uint8_t *battery_percent)
 {
     uint8_t plaintext[BTHOME_MAX_PLAINTEXT_LEN];
     uint8_t service_data[BTHOME_MAX_SERVICE_DATA_LEN];
+    size_t payload_offset;
     size_t plaintext_len;
     size_t service_data_len = 0;
     struct ble_gap_adv_params adv_params;
@@ -561,7 +595,7 @@ esp_err_t ble_button_tx_send_event(button_event_t event,
         active_button > total_buttons) {
         return ESP_ERR_INVALID_ARG;
     }
-    plaintext_len = plaintext_len_for_button_count(total_buttons);
+    plaintext_len = plaintext_len_for_payload(total_buttons, battery_percent != NULL);
 
     if (!tx_runtime_ready()) {
         return ESP_ERR_INVALID_STATE;
@@ -590,7 +624,18 @@ esp_err_t ble_button_tx_send_event(button_event_t event,
         next_counter = s_counter + 1;
         plaintext[0] = BTHOME_OBJ_PACKET_ID;
         plaintext[1] = (uint8_t)(next_counter & 0xFF);
-        err = encode_button_objects(plaintext, event, active_button, total_buttons);
+        payload_offset = BTHOME_PLAINTEXT_BASE_LEN;
+        err = encode_button_objects(plaintext,
+                                    plaintext_len,
+                                    &payload_offset,
+                                    event,
+                                    active_button,
+                                    total_buttons);
+        if (err != ESP_OK) {
+            xSemaphoreGive(s_mutex);
+            return err;
+        }
+        err = append_battery_object(plaintext, plaintext_len, &payload_offset, battery_percent);
         if (err != ESP_OK) {
             xSemaphoreGive(s_mutex);
             return err;
@@ -602,6 +647,14 @@ esp_err_t ble_button_tx_send_event(button_event_t event,
             return err;
         }
         adv_fields.svc_data_uuid16_len = service_data_len;
+
+        if (adv_payload_len_for_service_data_len(service_data_len) > BLE_ADV_MAX_PAYLOAD_LEN) {
+            ESP_LOGE(TAG, "BTHome advertisement is %u bytes, above the %u-byte legacy ADV budget",
+                     (unsigned)adv_payload_len_for_service_data_len(service_data_len),
+                     BLE_ADV_MAX_PAYLOAD_LEN);
+            xSemaphoreGive(s_mutex);
+            return ESP_ERR_INVALID_SIZE;
+        }
 
         rc = ble_gap_adv_set_fields(&adv_fields);
         if (rc != 0) {
@@ -623,10 +676,11 @@ esp_err_t ble_button_tx_send_event(button_event_t event,
 
         err = start_adv_operation(&adv_params);
         if (err == ESP_OK) {
-            ESP_LOGI(TAG, "sent button event=%u active_button=%u total_buttons=%u counter=%" PRIu32,
+            ESP_LOGI(TAG, "sent button event=%u active_button=%u total_buttons=%u battery=%s counter=%" PRIu32,
                      (unsigned)event,
                      (unsigned)active_button,
                      (unsigned)total_buttons,
+                     battery_percent ? "yes" : "no",
                      s_counter);
             xSemaphoreGive(s_mutex);
             return ESP_OK;

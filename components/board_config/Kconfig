@@ -21,4 +21,15 @@ choice BB_BOARD_PROFILE
         depends on IDF_TARGET_ESP32C3
 endchoice
 
+config BB_XIAO_ESP32_C3_A0_BATTERY
+    bool "Enable XIAO ESP32-C3 A0/GPIO2 battery telemetry"
+    depends on BB_BOARD_XIAO_ESP32_C3
+    default n
+    help
+        Enable this only for a XIAO ESP32-C3 modified with an external 2:1
+        divider from battery voltage to A0/GPIO2.
+
+        GPIO2 is also D0 on this board profile, so enabling this option removes
+        D0 from the active button map and exposes three logical buttons.
+
 endmenu

@@ -16,6 +16,9 @@
  * runtime will expose a single logical button.
  */
 static const int s_button_gpios[] = {0};
+static const int s_battery_gpio = -1;
+static const uint32_t s_battery_divider_num = 1;
+static const uint32_t s_battery_divider_den = 1;
 
 int board_config_system_led_gpio(void)
 {
@@ -36,6 +39,9 @@ bool board_config_system_led_active_low(void)
  * GPIO2 does work, but keep it as a last resort because it is a strapping pin.
  */
 static const int s_button_gpios[] = {3,4,1,0,5,2};
+static const int s_battery_gpio = -1;
+static const uint32_t s_battery_divider_num = 1;
+static const uint32_t s_battery_divider_den = 1;
 
 int board_config_system_led_gpio(void)
 {
@@ -54,10 +60,23 @@ bool board_config_system_led_active_low(void)
  *   D1/GPIO3, D2/GPIO4, D3/GPIO5, D0/GPIO2
  * Keep GPIO2 last because it is a strapping pin.
  *
+ * Optional battery telemetry can use A0/GPIO2 when the board is fitted with
+ * an external 2:1 divider. That collides with D0, so enabling the option hides
+ * that button from the active map automatically.
+ *
  * The bare XIAO board does not expose an application-controlled user LED.
  * The visible onboard LED is the charger indicator, not a firmware GPIO.
  */
 static const int s_button_gpios[] = {3,4,5,2};
+#if CONFIG_BB_XIAO_ESP32_C3_A0_BATTERY
+static const int s_battery_gpio = 2;
+static const uint32_t s_battery_divider_num = 2;
+static const uint32_t s_battery_divider_den = 1;
+#else
+static const int s_battery_gpio = -1;
+static const uint32_t s_battery_divider_num = 1;
+static const uint32_t s_battery_divider_den = 1;
+#endif
 
 int board_config_system_led_gpio(void)
 {
@@ -73,17 +92,63 @@ bool board_config_system_led_active_low(void)
 #error "Unsupported BluButton board profile"
 #endif
 
+static bool button_gpio_is_exposed(size_t raw_index)
+{
+    const int battery_gpio = board_config_battery_gpio();
+
+    if (raw_index >= (sizeof(s_button_gpios) / sizeof(s_button_gpios[0]))) {
+        return false;
+    }
+
+    return battery_gpio < 0 || s_button_gpios[raw_index] != battery_gpio;
+}
+
 size_t board_config_button_count(void)
 {
-    return sizeof(s_button_gpios) / sizeof(s_button_gpios[0]);
+    size_t count = 0;
+
+    for (size_t index = 0; index < (sizeof(s_button_gpios) / sizeof(s_button_gpios[0])); index++) {
+        if (button_gpio_is_exposed(index)) {
+            count++;
+        }
+    }
+
+    return count;
 }
 
 int board_config_button_gpio(size_t index)
 {
-    return index < board_config_button_count() ? s_button_gpios[index] : -1;
+    size_t exposed_index = 0;
+
+    for (size_t raw_index = 0; raw_index < (sizeof(s_button_gpios) / sizeof(s_button_gpios[0])); raw_index++) {
+        if (!button_gpio_is_exposed(raw_index)) {
+            continue;
+        }
+        if (exposed_index == index) {
+            return s_button_gpios[raw_index];
+        }
+        exposed_index++;
+    }
+
+    return -1;
 }
 
 bool board_config_button_active_low(void)
 {
     return true;
+}
+
+int board_config_battery_gpio(void)
+{
+    return s_battery_gpio;
+}
+
+uint32_t board_config_battery_divider_num(void)
+{
+    return s_battery_divider_num;
+}
+
+uint32_t board_config_battery_divider_den(void)
+{
+    return s_battery_divider_den;
 }

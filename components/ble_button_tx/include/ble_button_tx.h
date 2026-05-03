@@ -9,9 +9,10 @@
 
 /* Starts or reuses the broadcaster stack so startup can overlap other wake work. */
 esp_err_t ble_button_tx_init(const uint8_t key[16]);
-/* Encodes total_buttons BTHome button objects and marks active_button (1-based) with event. */
+/* Encodes packet id, total_buttons BTHome button objects, then optional battery object. */
 esp_err_t ble_button_tx_send_event(button_event_t event,
                                    size_t active_button,
-                                   size_t total_buttons);
+                                   size_t total_buttons,
+                                   const uint8_t *battery_percent);
 /* Waits until the current advertising session completes or the local adv deadline is enforced. */
 esp_err_t ble_button_tx_wait_for_adv_complete(void);

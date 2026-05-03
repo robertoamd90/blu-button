@@ -179,6 +179,8 @@ That script reads the `nvs` partition through the ROM bootloader path and prints
 
 The bare XIAO ESP32-C3 does not expose a firmware-controlled user LED, so local LED feedback patterns are a no-op on that board profile unless a later hardware-specific profile adds an external LED.
 
+On `xiao-esp32-c3`, optional BTHome battery telemetry is supported only when the board is modified with a 2:1 divider feeding `A0/GPIO2` and `CONFIG_BB_XIAO_ESP32_C3_A0_BATTERY=y` is enabled. Because that pin overlaps `D0`, enabling battery telemetry on that hardware layout reduces the active button map to 3 buttons automatically. The default XIAO profile leaves telemetry disabled and keeps all 4 button GPIOs active.
+
 ## What Was Ported From BluButtonBridge
 
 - board catalog in `config/boards.json`

@@ -35,6 +35,7 @@ That implies at least:
 BluButton is optimized first for BluButtonBridge, but the emitted payload should also remain sensible for generic BTHome consumers such as Home Assistant:
 
 - single-button payload shape
+- optional standard BTHome battery object when a board profile exposes valid battery telemetry
 - standard BTHome button event object
 - no dependency on Shelly branding strings for the event semantics to remain useful
 

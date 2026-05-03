@@ -66,6 +66,7 @@ The bootstrap phase has now been folded into a small working runtime:
    - allows BLE startup to overlap with gesture capture so wake-to-advertise latency stays bounded
    - persists and advances the anti-replay counter
    - emits encrypted BTHome service data with Shelly-compatible button events
+   - includes optional battery telemetry when the board profile exposes a valid battery ADC path
 
 6. `components/system_runtime/`
    - composes identity, GPIO, LED feedback, BLE transmission, and the deep-sleep lifecycle
@@ -81,6 +82,11 @@ Operator maintenance now also includes:
   - avoids depending on runtime serial logs after deep-sleep wake
   - is the preferred AES-key extraction path on USB-native boards such as the ESP32-C3
 
+Board-profile notes in the current runtime:
+
+- `xiao-esp32-c3` can expose battery telemetry through `A0/GPIO2` when fitted with an external 2:1 divider and built with `CONFIG_BB_XIAO_ESP32_C3_A0_BATTERY=y`
+- when battery telemetry is enabled and `battery_gpio` collides with a configured button GPIO, that logical button is removed from the active map automatically
+
 ## Remaining v0 Validation
 
 - flash and test all supported boards on hardware
@@ -88,7 +94,7 @@ Operator maintenance now also includes:
 - compare event timing against a real Shelly BLU Button and tune thresholds if needed
 - measure wake-to-advertise timing and deep-sleep current on real hardware
 - validate that borderline long-press and multi-click gestures still feel repeatable after the wake transition
-- decide whether to add battery telemetry placeholders in the next iteration
+- validate the optional XIAO battery telemetry path on hardware with the intended divider mod
 
 ## Likely next slices after review
 
