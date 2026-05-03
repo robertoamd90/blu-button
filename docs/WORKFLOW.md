@@ -17,6 +17,12 @@ For non-trivial firmware changes, the default validation target is all currently
 - `source ~/esp/esp-idf-v6.0/export.sh && scripts/idf-target.sh esp32c3-supermini build`
 - `source ~/esp/esp-idf-v6.0/export.sh && scripts/idf-target.sh xiao-esp32-c3 build`
 
+When a command needs sandbox approval, especially flash or monitor commands
+that access a serial port, read `.codex/rules/default.rules` first and use the
+matching approved command form exactly. Board aliases accepted by
+`scripts/idf-target.sh` are convenient locally, but an alias may not match an
+approved command prefix.
+
 If browser installer files change, also validate:
 
 - `node --check site/app.js`

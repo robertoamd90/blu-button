@@ -77,6 +77,11 @@ If documents overlap:
 
 For non-trivial work, prefer target-aware builds for all currently supported board profiles before calling work complete.
 
+When running sandbox-approved build, flash, or monitor commands, first check
+`.codex/rules/default.rules` and use the matching command form exactly. Helper
+script aliases may be valid for humans, but they do not necessarily match the
+approved command prefix.
+
 When browser installer files change, also validate:
 
 - `node --check site/app.js`
