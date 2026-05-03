@@ -45,7 +45,11 @@ _Static_assert(BLE_ADV_FLAGS_FIELD_TOTAL_LEN + BLE_ADV_SERVICE_DATA_FIELD_TOTAL_
                    BLE_ADV_MAX_PAYLOAD_LEN,
                "BTHome advertisement exceeds legacy ADV payload budget");
 
-#define ADV_DURATION_MS 200
+/*
+ * Keep the TX burst short for battery life, but long enough to add a few extra
+ * advertisement events over the original 200 ms field-failure window.
+ */
+#define ADV_DURATION_MS 300
 #define ADV_STOP_GRACE_MS 50
 #define ADV_WAIT_POLL_MS 20
 #define ADV_STOP_TIMEOUT_MS (ADV_DURATION_MS + ADV_STOP_GRACE_MS)
