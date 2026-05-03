@@ -179,6 +179,9 @@ That script reads the `nvs` partition through the ROM bootloader path and prints
 
 The bare XIAO ESP32-C3 does not expose a firmware-controlled user LED, so local LED feedback patterns are a no-op on that board profile unless a later hardware-specific profile adds an external LED.
 
+For a mobile enclosure build with XIAO ESP32-C3, battery, and 4 buttons, see the printable case project:
+https://www.printables.com/model/1698587-blu-button-case
+
 ## What Was Ported From BluButtonBridge
 
 - board catalog in `config/boards.json`
