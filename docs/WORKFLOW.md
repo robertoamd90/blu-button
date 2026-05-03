@@ -11,6 +11,18 @@ For normal feature or fix work:
 3. let the user handle on-device behavioral checks unless explicitly asked to do more
 4. only after validation and any user-requested review proceed with commit / PR / merge work
 
+### Commit and merge policy
+
+Use this repository policy for how changes land on `main`:
+
+- minor changes may be pushed directly
+  - examples: tiny docs wording fixes, obvious typo fixes, non-behavioral housekeeping
+- if work is done on a branch, land it through a PR
+- larger changes must use `branch + PR`
+  - examples: behavior changes, board/profile changes, BLE/runtime changes, installer/release-flow changes, or multi-file refactors
+
+When in doubt between "minor" and "larger", treat it as larger and use `branch + PR`.
+
 For non-trivial firmware changes, the default validation target is all currently supported board profiles:
 
 - `source ~/esp/esp-idf-v6.0/export.sh && scripts/idf-target.sh esp32 build`
