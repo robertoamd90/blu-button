@@ -94,7 +94,7 @@
       "build_dir": "build/xiao-esp32-c3",
       "display_name": "Seeed XIAO ESP32-C3",
       "summary": "Seeed XIAO ESP32-C3 with 4 MB flash, native USB-C, and onboard Li-ion charging.",
-      "hint": "Use this profile for the XIAO ESP32-C3 pinout. The bare board has no app-controlled user LED, so LED feedback is disabled unless external hardware provides one.",
+      "hint": "Use this profile for the XIAO ESP32-C3 pinout with an external user LED on D10/GPIO10. The onboard charge LED is not firmware-controlled.",
       "pills": ["ESP32-C3", "4 MB flash", "USB-C", "Li-ion charge"],
       "kconfig_symbol": "CONFIG_BB_BOARD_XIAO_ESP32_C3",
       "install_parts": [

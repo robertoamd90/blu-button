@@ -177,7 +177,7 @@ bash scripts/read-device-aes-key.sh --port /dev/cu.usbserial-0001
 
 That script reads the `nvs` partition through the ROM bootloader path and prints the stored `identity:aes_key` value as lowercase hex. This is the recommended maintenance path on boards such as the ESP32-C3 where the native USB serial link may drop during deep sleep.
 
-The bare XIAO ESP32-C3 does not expose a firmware-controlled user LED, so local LED feedback patterns are a no-op on that board profile unless a later hardware-specific profile adds an external LED.
+The XIAO ESP32-C3 profile used by BluButton expects an external user LED on D10/GPIO10. The board's onboard charge LED is not firmware-controlled.
 
 For a mobile enclosure build with XIAO ESP32-C3, battery, and 4 buttons, see the printable case project:
 https://www.printables.com/model/1698587-blu-button-case
@@ -209,3 +209,4 @@ https://www.printables.com/model/1698587-blu-button-case
 - `docs/PAGES_INSTALLER_CONTRACT.md`: browser installer and Pages deploy contract
 - `AGENTS.md`: contributor and coding-agent workflow guardrails
 - `.codex/config.toml` and `.codex/agents/*.toml`: project-scoped Codex runtime settings and review-phase subagent contracts
+- `.github/agents/*.agent.md`: Copilot custom-agent translations of the review roles above; keep these aligned with `.codex/agents/*.toml`, which remain the source of truth

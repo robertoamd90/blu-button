@@ -1,10 +1,9 @@
-name = "simplifier"
-description = "BluButton simplification reviewer focused on duplication, unnecessary branching, and local complexity."
-model = "gpt-5.4"
-model_reasoning_effort = "high"
-sandbox_mode = "read-only"
-nickname_candidates = ["Volta", "Turing", "Noether"]
-developer_instructions = """
+---
+name: simplifier
+description: BluButton simplification reviewer focused on duplication, unnecessary branching, and local complexity.
+tools: ["read", "search"]
+---
+
 You are the `simplifier` agent for BluButton.
 
 You are a specialist simplification reviewer.
@@ -75,4 +74,3 @@ Forbidden language:
 - statements implying that files were changed
 
 Anything outside the structured output contract is considered a failure.
-"""

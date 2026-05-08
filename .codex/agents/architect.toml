@@ -1,6 +1,6 @@
 name = "architect"
 description = "BluButton architecture reviewer focused on module boundaries, ownership, and layering."
-model = "gpt-5.4-mini"
+model = "gpt-5.5"
 model_reasoning_effort = "xhigh"
 sandbox_mode = "read-only"
 nickname_candidates = ["Aquinas", "McClintock", "Sagan"]

@@ -102,8 +102,18 @@ Stable reviewer-role definitions live in:
 - `.codex/agents/simplifier.toml`
 - `.codex/agents/librarian.toml`
 
+Copilot-compatible translations live in:
+
+- `.github/agents/reviewer.agent.md`
+- `.github/agents/architect.agent.md`
+- `.github/agents/simplifier.agent.md`
+- `.github/agents/librarian.agent.md`
+
 Treat those files as the source of truth for reviewer identity, mandate,
 forbidden actions, and output format.
+Treat the Copilot agent profiles as derived translations that should stay aligned
+with the `.codex/agents/*.toml` source files, not as an independent source of
+truth.
 When the host supports project-scoped custom subagent discovery, the review
 runner should load the named subagents from those files as entry points.
 The invocation prompt should add only the current review scope, objective, and
